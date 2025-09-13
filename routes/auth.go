@@ -1,20 +1,17 @@
-// routes/auth.go
 package routes
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 
-	"tutuplapak-go/repository" // sqlc generated code
-	"tutuplapak-go/utils"      // token management
+	"tutuplapak-go/repository"
+	"tutuplapak-go/utils"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	Queries *repository.Queries // <-- sqlc Queries struct
+	Queries *repository.Queries
 }
 
 func NewAuthHandler(queries *repository.Queries) *AuthHandler {
@@ -47,13 +44,6 @@ type AuthResponse struct {
 	Email string `json:"email"`
 	Phone string `json:"phone"`
 	Token string `json:"token"`
-}
-
-// Utility functions
-func generateToken() string {
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
 }
 
 // Email Registration - POST /v1/register/email
@@ -90,11 +80,7 @@ func (h *AuthHandler) RegisterEmail(c *gin.Context) {
 	}
 
 	// Generate token
-	token := generateToken()
-
-	// Store token (you might want to save this in DB or cache)
-	// For now, we'll just generate it
-
+	token := utils.GenerateToken()
 	c.JSON(http.StatusCreated, AuthResponse{
 		Email: user.Email,
 		Phone: "", // Empty string if first registering
@@ -111,7 +97,7 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 	}
 
 	// Validate phone format
-	if !validatePhone(req.Phone) {
+	if !utils.ValidatePhone(req.Phone) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -142,8 +128,7 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 	}
 
 	// Generate token
-	token := generateToken()
-
+	token := utils.GenerateToken()
 	c.JSON(http.StatusCreated, AuthResponse{
 		Email: "", // Empty string if first registering
 		Phone: user.Phone,
@@ -173,8 +158,7 @@ func (h *AuthHandler) LoginEmail(c *gin.Context) {
 	}
 
 	// Generate token
-	token := generateToken()
-
+	token := utils.GenerateToken()
 	c.JSON(http.StatusOK, AuthResponse{
 		Email: user.Email,
 		Phone: user.Phone, // Could be empty if not linked
@@ -191,7 +175,7 @@ func (h *AuthHandler) LoginPhone(c *gin.Context) {
 	}
 
 	// Validate phone format
-	if !validatePhone(req.Phone) {
+	if !utils.ValidatePhone(req.Phone) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -210,11 +194,9 @@ func (h *AuthHandler) LoginPhone(c *gin.Context) {
 	}
 
 	// Generate token
-	token := generateToken()
-
+	token := utils.GenerateToken()
 	// Store token with user ID
 	utils.GlobalTokenStore.StoreToken(token, user.ID)
-
 	c.JSON(http.StatusOK, AuthResponse{
 		Email: user.Email, // Could be empty if not linked
 		Phone: user.Phone,

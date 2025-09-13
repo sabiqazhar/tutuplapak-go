@@ -1,0 +1,1652 @@
+-e 
+=== ./middleware/auth_middleware.go ===
+// middleware/auth.go
+package middleware
+
+import (
+	"net/http"
+	"strings"
+
+	"tutuplapak-go/utils"
+
+	"github.com/gin-gonic/gin"
+)
+
+// AuthMiddleware validates Bearer tokens and sets user_id in context
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		// Extract token from "Bearer <token>"
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == authHeader {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		// Get user ID from token store
+		userID, exists := utils.GlobalTokenStore.GetUserID(token)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		// Set user ID in context for use in handlers
+		c.Set("user_id", userID)
+		c.Next()
+	}
+}
+-e 
+=== ./cmd/main.go ===
+// cmd/main.go
+package main
+
+import (
+	"log"
+
+	"tutuplapak-go/middleware"
+	"tutuplapak-go/provider"
+	"tutuplapak-go/repository" // sqlc generated
+	"tutuplapak-go/routes"
+	"tutuplapak-go/utils"
+
+	"github.com/gin-gonic/gin"
+)
+
+func main() {
+	dataSourceName := "host=localhost user=postgres password=yourpassword dbname=yourdbname port=5432 sslmode=disable TimeZone=Asia/Jakarta"
+
+	// Init DB
+	db := provider.InitDB(dataSourceName)
+
+	// Init sqlc Queries
+	queries := repository.New(db)
+
+	// Init Handlers
+	authHandler := routes.NewAuthHandler(queries)
+	profileHandler := routes.NewProfileHandler(queries)
+	fileHandler := routes.NewFileHandler(queries)
+
+	// Start token cleanup routine
+	utils.GlobalTokenStore.StartCleanupRoutine()
+
+	// Setup Gin
+	r := gin.Default()
+
+	// Serve static files (for uploaded files)
+	r.Static("/uploads", "./uploads")
+
+	// V1 API Routes according to requirement
+	v1 := r.Group("/v1")
+	{
+		// Public routes (no authentication required)
+		v1.POST("/login/email", authHandler.LoginEmail)
+		v1.POST("/login/phone", authHandler.LoginPhone)
+		v1.POST("/register/email", authHandler.RegisterEmail)
+		v1.POST("/register/phone", authHandler.RegisterPhone)
+		v1.POST("/file", fileHandler.UploadFile)
+
+		// Protected routes (require authentication)
+		protected := v1.Group("/")
+		protected.Use(middleware.AuthMiddleware())
+		{
+			// User profile routes
+			protected.GET("/user", profileHandler.GetProfile)
+			protected.PUT("/user", profileHandler.UpdateProfile)
+			protected.POST("/user/link/phone", profileHandler.LinkPhone)
+			protected.POST("/user/link/email", profileHandler.LinkEmail)
+		}
+	}
+
+	// Run server
+	port := ":8080"
+	log.Printf("🚀 Server running on http://localhost%s", port)
+	log.Fatal(r.Run(port))
+}
+-e 
+=== ./migrations/000002_update_user_table.down.sql ===
+-e 
+=== ./migrations/000002_update_user_table.up.sql ===
+
+-- migration/001_initial.sql
+
+-- Update users table to support both email and phone registration
+ALTER TABLE users
+    ALTER COLUMN email DROP NOT NULL,
+    ADD CONSTRAINT users_email_or_phone_check
+        CHECK ((email IS NOT NULL AND email != '') OR (phone IS NOT NULL AND phone != ''));
+
+-- Add unique constraints
+ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
+ALTER TABLE users ADD CONSTRAINT users_phone_unique UNIQUE (phone);
+
+-- Make sure at least one of email or phone is provided
+-- The constraint above handles this
+
+-- Add indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);-e 
+=== ./migrations/000001_create_init_tabel.down.sql ===
+-- Drop tables in reverse order (child tables first)
+DROP TABLE IF EXISTS payment_detail;
+DROP TABLE IF EXISTS purchase_item;
+DROP TABLE IF EXISTS purchases;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS product_category;
+DROP TABLE IF EXISTS files;
+
+-- DROP EXTENSION IF EXISTS citext; -- optional, biasanya tidak perlu di-drop-e 
+=== ./migrations/000001_create_init_tabel.up.sql ===
+-- Table: files (harus dibuat dulu karena direferensikan)
+CREATE TABLE files (
+    id SERIAL PRIMARY KEY,
+    file_uri VARCHAR NOT NULL,
+    file_thumnail_uri VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: product_category
+CREATE TABLE product_category (
+    product_category_id SERIAL PRIMARY KEY,
+    name VARCHAR
+);
+
+-- Table: users — file_id sekarang INTEGER, referensi ke files.id
+-- Table: users
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER REFERENCES files(id) ON DELETE SET NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    phone VARCHAR(20) UNIQUE NOT NULL,
+    bank_account_name VARCHAR(255),
+    bank_account_holder VARCHAR(255),
+    bank_account_number VARCHAR(50),
+    password TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: products — file_id sekarang INTEGER, referensi ke files.id
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR,
+    category INTEGER REFERENCES product_category(product_category_id) ON DELETE SET NULL,
+    qty INTEGER,
+    price DECIMAL,
+    sku VARCHAR,
+    file_id INTEGER REFERENCES files(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: purchases
+CREATE TABLE purchases (
+    id SERIAL PRIMARY KEY,
+    sender_name VARCHAR,
+    sender_contact_type VARCHAR,
+    sender_contact_detail VARCHAR,
+    total INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: purchase_item — tambahkan PK jika belum ada
+CREATE TABLE purchase_item (
+    id SERIAL PRIMARY KEY,
+    purchase_id INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    total DECIMAL,
+    qty INTEGER
+);
+
+-- Table: payment_detail
+CREATE TABLE payment_detail (
+    id SERIAL PRIMARY KEY,
+    purchase_id INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    file_id INTEGER REFERENCES files(id) ON DELETE SET NULL 
+);
+
+-- Optional: Index untuk optimasi
+-- CREATE INDEX idx_users_email ON users(email);
+-- CREATE INDEX idx_users_phone ON users(phone);
+-- CREATE INDEX idx_users_file_id ON users(file_id);
+-- CREATE INDEX idx_products_user_id ON products(user_id);
+-- CREATE INDEX idx_products_category ON products(category);
+-- CREATE INDEX idx_products_file_id ON products(file_id);
+-- CREATE INDEX idx_purchase_item_purchase_id ON purchase_item(purchase_id);
+-- CREATE INDEX idx_purchase_item_product_id ON purchase_item(product_id);
+-- CREATE INDEX idx_payment_detail_purchase_id ON payment_detail(purchase_id);
+-- CREATE INDEX idx_payment_detail_user_id ON payment_detail(user_id);
+-- CREATE INDEX idx_payment_detail_file_id ON payment_detail(file_id);-e 
+=== ./docker-compose.yaml ===
+version: "3.8"
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: tutuplapak-postgres
+    environment:
+      POSTGRES_DB: tutuplapak
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - tutuplapak_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: tutuplapak-minio
+    restart: always
+    ports:
+      - "9000:9000"
+      - "9090:9090"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server --console-address ":9090" /data
+
+volumes:
+  tutuplapak_data:-e 
+=== ./repository/models.go ===
+// Code generated by sqlc. DO NOT EDIT.
+// versions:
+//   sqlc v1.27.0
+
+package repository
+
+import (
+	"database/sql"
+)
+
+type File struct {
+	ID              int32          `json:"id"`
+	FileUri         string         `json:"file_uri"`
+	FileThumnailUri sql.NullString `json:"file_thumnail_uri"`
+	CreatedAt       sql.NullTime   `json:"created_at"`
+	UpdatedAt       sql.NullTime   `json:"updated_at"`
+}
+
+type PaymentDetail struct {
+	ID         int32         `json:"id"`
+	PurchaseID int32         `json:"purchase_id"`
+	UserID     sql.NullInt32 `json:"user_id"`
+	FileID     sql.NullInt32 `json:"file_id"`
+}
+
+type Product struct {
+	ProductID int32          `json:"product_id"`
+	UserID    sql.NullInt32  `json:"user_id"`
+	Name      sql.NullString `json:"name"`
+	Category  sql.NullInt32  `json:"category"`
+	Qty       sql.NullInt32  `json:"qty"`
+	Price     sql.NullString `json:"price"`
+	Sku       sql.NullString `json:"sku"`
+	FileID    sql.NullInt32  `json:"file_id"`
+	CreatedAt sql.NullTime   `json:"created_at"`
+	UpdatedAt sql.NullTime   `json:"updated_at"`
+}
+
+type ProductCategory struct {
+	ProductCategoryID int32          `json:"product_category_id"`
+	Name              sql.NullString `json:"name"`
+}
+
+type Purchase struct {
+	ID                  int32          `json:"id"`
+	SenderName          sql.NullString `json:"sender_name"`
+	SenderContactType   sql.NullString `json:"sender_contact_type"`
+	SenderContactDetail sql.NullString `json:"sender_contact_detail"`
+	Total               sql.NullInt32  `json:"total"`
+	CreatedAt           sql.NullTime   `json:"created_at"`
+	UpdatedAt           sql.NullTime   `json:"updated_at"`
+}
+
+type PurchaseItem struct {
+	ID         int32          `json:"id"`
+	PurchaseID int32          `json:"purchase_id"`
+	ProductID  int32          `json:"product_id"`
+	Total      sql.NullString `json:"total"`
+	Qty        sql.NullInt32  `json:"qty"`
+}
+
+type User struct {
+	ID                int32          `json:"id"`
+	FileID            sql.NullInt32  `json:"file_id"`
+	Email             string         `json:"email"`
+	Phone             string         `json:"phone"`
+	BankAccountName   sql.NullString `json:"bank_account_name"`
+	BankAccountHolder sql.NullString `json:"bank_account_holder"`
+	BankAccountNumber sql.NullString `json:"bank_account_number"`
+	Password          string         `json:"password"`
+	CreatedAt         sql.NullTime   `json:"created_at"`
+	UpdatedAt         sql.NullTime   `json:"updated_at"`
+}
+-e 
+=== ./repository/db.go ===
+// Code generated by sqlc. DO NOT EDIT.
+// versions:
+//   sqlc v1.27.0
+
+package repository
+
+import (
+	"context"
+	"database/sql"
+)
+
+type DBTX interface {
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+	PrepareContext(context.Context, string) (*sql.Stmt, error)
+	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+func New(db DBTX) *Queries {
+	return &Queries{db: db}
+}
+
+type Queries struct {
+	db DBTX
+}
+
+func (q *Queries) WithTx(tx *sql.Tx) *Queries {
+	return &Queries{
+		db: tx,
+	}
+}
+-e 
+=== ./repository/user.sql.go ===
+// Code generated by sqlc. DO NOT EDIT.
+// versions:
+//   sqlc v1.27.0
+// source: user.sql
+
+package repository
+
+import (
+	"context"
+	"database/sql"
+)
+
+const createFile = `-- name: CreateFile :one
+INSERT INTO files (file_uri, file_thumnail_uri, created_at, updated_at)
+VALUES ($1, $2, NOW(), NOW())
+    RETURNING id, file_uri, file_thumnail_uri, created_at, updated_at
+`
+
+type CreateFileParams struct {
+	FileUri         string         `json:"file_uri"`
+	FileThumnailUri sql.NullString `json:"file_thumnail_uri"`
+}
+
+func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, error) {
+	row := q.db.QueryRowContext(ctx, createFile, arg.FileUri, arg.FileThumnailUri)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.FileUri,
+		&i.FileThumnailUri,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createUser = `-- name: CreateUser :one
+
+INSERT INTO users (email, password)
+VALUES ($1, $2)
+    RETURNING id, email, created_at
+`
+
+type CreateUserParams struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type CreateUserRow struct {
+	ID        int32        `json:"id"`
+	Email     string       `json:"email"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+// query/user.sql - Complete queries for authentication and profile management
+// Authentication queries
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
+	row := q.db.QueryRowContext(ctx, createUser, arg.Email, arg.Password)
+	var i CreateUserRow
+	err := row.Scan(&i.ID, &i.Email, &i.CreatedAt)
+	return i, err
+}
+
+const createUserWithEmail = `-- name: CreateUserWithEmail :one
+INSERT INTO users (email, password, phone)
+VALUES ($1, $2, $3)
+    RETURNING id, email, phone, created_at
+`
+
+type CreateUserWithEmailParams struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Phone    string `json:"phone"`
+}
+
+type CreateUserWithEmailRow struct {
+	ID        int32        `json:"id"`
+	Email     string       `json:"email"`
+	Phone     string       `json:"phone"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+func (q *Queries) CreateUserWithEmail(ctx context.Context, arg CreateUserWithEmailParams) (CreateUserWithEmailRow, error) {
+	row := q.db.QueryRowContext(ctx, createUserWithEmail, arg.Email, arg.Password, arg.Phone)
+	var i CreateUserWithEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Phone,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createUserWithPhone = `-- name: CreateUserWithPhone :one
+INSERT INTO users (phone, password, email)
+VALUES ($1, $2, $3)
+    RETURNING id, phone, email, created_at
+`
+
+type CreateUserWithPhoneParams struct {
+	Phone    string `json:"phone"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+}
+
+type CreateUserWithPhoneRow struct {
+	ID        int32        `json:"id"`
+	Phone     string       `json:"phone"`
+	Email     string       `json:"email"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+func (q *Queries) CreateUserWithPhone(ctx context.Context, arg CreateUserWithPhoneParams) (CreateUserWithPhoneRow, error) {
+	row := q.db.QueryRowContext(ctx, createUserWithPhone, arg.Phone, arg.Password, arg.Email)
+	var i CreateUserWithPhoneRow
+	err := row.Scan(
+		&i.ID,
+		&i.Phone,
+		&i.Email,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getFileByID = `-- name: GetFileByID :one
+SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
+FROM files
+WHERE id = $1
+`
+
+// File management queries
+func (q *Queries) GetFileByID(ctx context.Context, id int32) (File, error) {
+	row := q.db.QueryRowContext(ctx, getFileByID, id)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.FileUri,
+		&i.FileThumnailUri,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getFileByStringID = `-- name: GetFileByStringID :one
+SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
+FROM files
+WHERE id = $1::integer
+`
+
+func (q *Queries) GetFileByStringID(ctx context.Context, dollar_1 int32) (File, error) {
+	row := q.db.QueryRowContext(ctx, getFileByStringID, dollar_1)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.FileUri,
+		&i.FileThumnailUri,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, phone, password, created_at
+FROM users
+WHERE email = $1
+`
+
+type GetUserByEmailRow struct {
+	ID        int32        `json:"id"`
+	Email     string       `json:"email"`
+	Phone     string       `json:"phone"`
+	Password  string       `json:"password"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
+	var i GetUserByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Phone,
+		&i.Password,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, password, created_at, updated_at
+FROM users
+WHERE id = $1
+`
+
+// Profile management queries
+func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.Email,
+		&i.Phone,
+		&i.BankAccountName,
+		&i.BankAccountHolder,
+		&i.BankAccountNumber,
+		&i.Password,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByPhone = `-- name: GetUserByPhone :one
+SELECT id, phone, email, password, created_at
+FROM users
+WHERE phone = $1
+`
+
+type GetUserByPhoneRow struct {
+	ID        int32        `json:"id"`
+	Phone     string       `json:"phone"`
+	Email     string       `json:"email"`
+	Password  string       `json:"password"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+func (q *Queries) GetUserByPhone(ctx context.Context, phone string) (GetUserByPhoneRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserByPhone, phone)
+	var i GetUserByPhoneRow
+	err := row.Scan(
+		&i.ID,
+		&i.Phone,
+		&i.Email,
+		&i.Password,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const linkEmailToUser = `-- name: LinkEmailToUser :one
+UPDATE users
+SET
+    email = $2,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at
+`
+
+type LinkEmailToUserParams struct {
+	ID    int32  `json:"id"`
+	Email string `json:"email"`
+}
+
+type LinkEmailToUserRow struct {
+	ID                int32          `json:"id"`
+	FileID            sql.NullInt32  `json:"file_id"`
+	Email             string         `json:"email"`
+	Phone             string         `json:"phone"`
+	BankAccountName   sql.NullString `json:"bank_account_name"`
+	BankAccountHolder sql.NullString `json:"bank_account_holder"`
+	BankAccountNumber sql.NullString `json:"bank_account_number"`
+	CreatedAt         sql.NullTime   `json:"created_at"`
+	UpdatedAt         sql.NullTime   `json:"updated_at"`
+}
+
+func (q *Queries) LinkEmailToUser(ctx context.Context, arg LinkEmailToUserParams) (LinkEmailToUserRow, error) {
+	row := q.db.QueryRowContext(ctx, linkEmailToUser, arg.ID, arg.Email)
+	var i LinkEmailToUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.Email,
+		&i.Phone,
+		&i.BankAccountName,
+		&i.BankAccountHolder,
+		&i.BankAccountNumber,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const linkPhoneToUser = `-- name: LinkPhoneToUser :one
+UPDATE users
+SET
+    phone = $2,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at
+`
+
+type LinkPhoneToUserParams struct {
+	ID    int32  `json:"id"`
+	Phone string `json:"phone"`
+}
+
+type LinkPhoneToUserRow struct {
+	ID                int32          `json:"id"`
+	FileID            sql.NullInt32  `json:"file_id"`
+	Email             string         `json:"email"`
+	Phone             string         `json:"phone"`
+	BankAccountName   sql.NullString `json:"bank_account_name"`
+	BankAccountHolder sql.NullString `json:"bank_account_holder"`
+	BankAccountNumber sql.NullString `json:"bank_account_number"`
+	CreatedAt         sql.NullTime   `json:"created_at"`
+	UpdatedAt         sql.NullTime   `json:"updated_at"`
+}
+
+func (q *Queries) LinkPhoneToUser(ctx context.Context, arg LinkPhoneToUserParams) (LinkPhoneToUserRow, error) {
+	row := q.db.QueryRowContext(ctx, linkPhoneToUser, arg.ID, arg.Phone)
+	var i LinkPhoneToUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.Email,
+		&i.Phone,
+		&i.BankAccountName,
+		&i.BankAccountHolder,
+		&i.BankAccountNumber,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET
+    file_id = $2,
+    bank_account_name = $3,
+    bank_account_holder = $4,
+    bank_account_number = $5,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at
+`
+
+type UpdateUserProfileParams struct {
+	ID                int32          `json:"id"`
+	FileID            sql.NullInt32  `json:"file_id"`
+	BankAccountName   sql.NullString `json:"bank_account_name"`
+	BankAccountHolder sql.NullString `json:"bank_account_holder"`
+	BankAccountNumber sql.NullString `json:"bank_account_number"`
+}
+
+type UpdateUserProfileRow struct {
+	ID                int32          `json:"id"`
+	FileID            sql.NullInt32  `json:"file_id"`
+	Email             string         `json:"email"`
+	Phone             string         `json:"phone"`
+	BankAccountName   sql.NullString `json:"bank_account_name"`
+	BankAccountHolder sql.NullString `json:"bank_account_holder"`
+	BankAccountNumber sql.NullString `json:"bank_account_number"`
+	CreatedAt         sql.NullTime   `json:"created_at"`
+	UpdatedAt         sql.NullTime   `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (UpdateUserProfileRow, error) {
+	row := q.db.QueryRowContext(ctx, updateUserProfile,
+		arg.ID,
+		arg.FileID,
+		arg.BankAccountName,
+		arg.BankAccountHolder,
+		arg.BankAccountNumber,
+	)
+	var i UpdateUserProfileRow
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.Email,
+		&i.Phone,
+		&i.BankAccountName,
+		&i.BankAccountHolder,
+		&i.BankAccountNumber,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+-e 
+=== ./sqlc.yaml ===
+version: "2"
+sql:
+  - schema: "./migrations/000001_create_init_tabel.up.sql"
+    queries: "./query"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "repository"
+        out: "./repository"
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false-e 
+=== ./provider/postgres.go ===
+package provider
+
+import (
+	"database/sql"
+	"log"
+
+	_ "github.com/lib/pq"
+)
+
+func InitDB(dataSourceName string) *sql.DB {
+	db, err := sql.Open("postgres", dataSourceName)
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatal("Database ping failed:", err)
+	}
+
+	log.Println("✅ Connected to PostgreSQL")
+	return db
+}-e 
+=== ./utils/token.go ===
+// utils/token.go
+package utils
+
+import (
+	"sync"
+	"time"
+)
+
+// Simple in-memory token store (use Redis or DB in production)
+type TokenStore struct {
+	tokens map[string]TokenData
+	mutex  sync.RWMutex
+}
+
+type TokenData struct {
+	UserID    int32
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+var GlobalTokenStore = &TokenStore{
+	tokens: make(map[string]TokenData),
+}
+
+func (ts *TokenStore) StoreToken(token string, userID int32) {
+	ts.mutex.Lock()
+	defer ts.mutex.Unlock()
+
+	ts.tokens[token] = TokenData{
+		UserID:    userID,
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(24 * time.Hour), // Token expires in 24 hours
+	}
+}
+
+func (ts *TokenStore) GetUserID(token string) (int32, bool) {
+	ts.mutex.RLock()
+	defer ts.mutex.RUnlock()
+
+	tokenData, exists := ts.tokens[token]
+	if !exists {
+		return 0, false
+	}
+
+	// Check if token is expired
+	if time.Now().After(tokenData.ExpiresAt) {
+		// Clean up expired token
+		delete(ts.tokens, token)
+		return 0, false
+	}
+
+	return tokenData.UserID, true
+}
+
+func (ts *TokenStore) DeleteToken(token string) {
+	ts.mutex.Lock()
+	defer ts.mutex.Unlock()
+
+	delete(ts.tokens, token)
+}
+
+// Cleanup expired tokens periodically
+func (ts *TokenStore) CleanupExpiredTokens() {
+	ts.mutex.Lock()
+	defer ts.mutex.Unlock()
+
+	now := time.Now()
+	for token, tokenData := range ts.tokens {
+		if now.After(tokenData.ExpiresAt) {
+			delete(ts.tokens, token)
+		}
+	}
+}
+
+// Start cleanup goroutine
+func (ts *TokenStore) StartCleanupRoutine() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		for range ticker.C {
+			ts.CleanupExpiredTokens()
+		}
+	}()
+}
+-e 
+=== ./query/user.sql ===
+-- query/user.sql - Complete queries for authentication and profile management
+
+-- Authentication queries
+-- name: CreateUser :one
+INSERT INTO users (email, password)
+VALUES ($1, $2)
+    RETURNING id, email, created_at;
+
+-- name: CreateUserWithEmail :one
+INSERT INTO users (email, password, phone)
+VALUES ($1, $2, $3)
+    RETURNING id, email, phone, created_at;
+
+-- name: CreateUserWithPhone :one
+INSERT INTO users (phone, password, email)
+VALUES ($1, $2, $3)
+    RETURNING id, phone, email, created_at;
+
+-- name: GetUserByEmail :one
+SELECT id, email, phone, password, created_at
+FROM users
+WHERE email = $1;
+
+-- name: GetUserByPhone :one
+SELECT id, phone, email, password, created_at
+FROM users
+WHERE phone = $1;
+
+-- Profile management queries
+-- name: GetUserByID :one
+SELECT id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, password, created_at, updated_at
+FROM users
+WHERE id = $1;
+
+-- name: UpdateUserProfile :one
+UPDATE users
+SET
+    file_id = $2,
+    bank_account_name = $3,
+    bank_account_holder = $4,
+    bank_account_number = $5,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at;
+
+-- name: LinkPhoneToUser :one
+UPDATE users
+SET
+    phone = $2,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at;
+
+-- name: LinkEmailToUser :one
+UPDATE users
+SET
+    email = $2,
+    updated_at = NOW()
+WHERE id = $1
+    RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at;
+
+-- File management queries
+-- name: GetFileByID :one
+SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
+FROM files
+WHERE id = $1;
+
+-- name: GetFileByStringID :one
+SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
+FROM files
+WHERE id = $1::integer;
+
+-- name: CreateFile :one
+INSERT INTO files (file_uri, file_thumnail_uri, created_at, updated_at)
+VALUES ($1, $2, NOW(), NOW())
+    RETURNING id, file_uri, file_thumnail_uri, created_at, updated_at;-e 
+=== ./routes/auth.go ===
+// routes/auth.go
+package routes
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"net/http"
+
+	"tutuplapak-go/repository" // sqlc generated code
+	"tutuplapak-go/utils"      // token management
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type AuthHandler struct {
+	Queries *repository.Queries // <-- sqlc Queries struct
+}
+
+func NewAuthHandler(queries *repository.Queries) *AuthHandler {
+	return &AuthHandler{Queries: queries}
+}
+
+// Request structs
+type RegisterEmailRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8,max=32"`
+}
+
+type RegisterPhoneRequest struct {
+	Phone    string `json:"phone" binding:"required"`
+	Password string `json:"password" binding:"required,min=8,max=32"`
+}
+
+type LoginEmailRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8,max=32"`
+}
+
+type LoginPhoneRequest struct {
+	Phone    string `json:"phone" binding:"required"`
+	Password string `json:"password" binding:"required,min=8,max=32"`
+}
+
+// Response struct
+type AuthResponse struct {
+	Email string `json:"email"`
+	Phone string `json:"phone"`
+	Token string `json:"token"`
+}
+
+// Utility functions
+func generateToken() string {
+	bytes := make([]byte, 32)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// Email Registration - POST /v1/register/email
+func (h *AuthHandler) RegisterEmail(c *gin.Context) {
+	var req RegisterEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Check if user already exists
+	_, err := h.Queries.GetUserByEmail(c, req.Email)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Create user
+	user, err := h.Queries.CreateUserWithEmail(c, repository.CreateUserWithEmailParams{
+		Email:    req.Email,
+		Password: string(hashedPassword),
+		Phone:    "", // Empty phone initially
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Generate token
+	token := generateToken()
+
+	// Store token (you might want to save this in DB or cache)
+	// For now, we'll just generate it
+
+	c.JSON(http.StatusCreated, AuthResponse{
+		Email: user.Email,
+		Phone: "", // Empty string if first registering
+		Token: token,
+	})
+}
+
+// Phone Registration - POST /v1/register/phone
+func (h *AuthHandler) RegisterPhone(c *gin.Context) {
+	var req RegisterPhoneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate phone format
+	if !validatePhone(req.Phone) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Check if phone already exists
+	_, err := h.Queries.GetUserByPhone(c, req.Phone)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Phone already exists"})
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Create user with phone
+	user, err := h.Queries.CreateUserWithPhone(c, repository.CreateUserWithPhoneParams{
+		Phone:    req.Phone,
+		Password: string(hashedPassword),
+		Email:    "", // Empty email initially
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Generate token
+	token := generateToken()
+
+	c.JSON(http.StatusCreated, AuthResponse{
+		Email: "", // Empty string if first registering
+		Phone: user.Phone,
+		Token: token,
+	})
+}
+
+// Email Login - POST /v1/login/email
+func (h *AuthHandler) LoginEmail(c *gin.Context) {
+	var req LoginEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Find user by email
+	user, err := h.Queries.GetUserByEmail(c, req.Email)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
+		return
+	}
+
+	// Compare password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
+		return
+	}
+
+	// Generate token
+	token := generateToken()
+
+	c.JSON(http.StatusOK, AuthResponse{
+		Email: user.Email,
+		Phone: user.Phone, // Could be empty if not linked
+		Token: token,
+	})
+}
+
+// Phone Login - POST /v1/login/phone
+func (h *AuthHandler) LoginPhone(c *gin.Context) {
+	var req LoginPhoneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate phone format
+	if !validatePhone(req.Phone) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Find user by phone
+	user, err := h.Queries.GetUserByPhone(c, req.Phone)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Phone not found"})
+		return
+	}
+
+	// Compare password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Phone not found"})
+		return
+	}
+
+	// Generate token
+	token := generateToken()
+
+	// Store token with user ID
+	utils.GlobalTokenStore.StoreToken(token, user.ID)
+
+	c.JSON(http.StatusOK, AuthResponse{
+		Email: user.Email, // Could be empty if not linked
+		Phone: user.Phone,
+		Token: token,
+	})
+}
+-e 
+=== ./routes/profile.go ===
+// routes/profile.go
+package routes
+
+import (
+	"database/sql"
+	"fmt"
+	"net/http"
+	"regexp"
+	"strconv"
+
+	"tutuplapak-go/repository"
+
+	"github.com/gin-gonic/gin"
+)
+
+type ProfileHandler struct {
+	Queries *repository.Queries
+}
+
+func NewProfileHandler(queries *repository.Queries) *ProfileHandler {
+	return &ProfileHandler{Queries: queries}
+}
+
+// Request structs
+type UpdateProfileRequest struct {
+	FileID            string `json:"fileId"`
+	BankAccountName   string `json:"bankAccountName" binding:"required,min=4,max=32"`
+	BankAccountHolder string `json:"bankAccountHolder" binding:"required,min=4,max=32"`
+	BankAccountNumber string `json:"bankAccountNumber" binding:"required,min=4,max=32"`
+}
+
+type LinkPhoneRequest struct {
+	Phone string `json:"phone" binding:"required"`
+}
+
+type LinkEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// Response struct
+type ProfileResponse struct {
+	Email             string `json:"email"`
+	Phone             string `json:"phone"`
+	FileID            string `json:"fileId"`
+	FileURI           string `json:"fileUri"`
+	FileThumbnailURI  string `json:"fileThumbnailUri"`
+	BankAccountName   string `json:"bankAccountName"`
+	BankAccountHolder string `json:"bankAccountHolder"`
+	BankAccountNumber string `json:"bankAccountNumber"`
+}
+
+// Helper function to get user ID from gin context
+func getUserIDFromContext(c *gin.Context) (int32, error) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return 0, fmt.Errorf("user not found in context")
+	}
+	return userID.(int32), nil
+}
+
+// GET /v1/user
+func (h *ProfileHandler) GetProfile(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	user, err := h.Queries.GetUserByID(c, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Get file information if fileId exists
+	var fileURI, fileThumbnailURI string
+	if user.FileID.Valid && user.FileID.Int32 > 0 {
+		file, err := h.Queries.GetFileByID(c, user.FileID.Int32)
+		if err == nil {
+			fileURI = file.FileUri
+			if file.FileThumnailUri.Valid {
+				fileThumbnailURI = file.FileThumnailUri.String
+			}
+		}
+	}
+
+	response := ProfileResponse{
+		Email:             user.Email,
+		Phone:             user.Phone,
+		FileID:            getStringFromNullInt32(user.FileID),
+		FileURI:           fileURI,
+		FileThumbnailURI:  fileThumbnailURI,
+		BankAccountName:   getStringFromNullString(user.BankAccountName),
+		BankAccountHolder: getStringFromNullString(user.BankAccountHolder),
+		BankAccountNumber: getStringFromNullString(user.BankAccountNumber),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// PUT /v1/user
+func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate fileId if provided
+	var fileID sql.NullInt32
+	if req.FileID != "" {
+		// Convert string fileId to int32
+		fileIDInt, err := strconv.Atoi(req.FileID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
+			return
+		}
+
+		// Check if file exists
+		_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
+			return
+		}
+		fileID = sql.NullInt32{Int32: int32(fileIDInt), Valid: true}
+	}
+
+	// Update user profile
+	updatedUser, err := h.Queries.UpdateUserProfile(c, repository.UpdateUserProfileParams{
+		ID:                userID,
+		FileID:            fileID,
+		BankAccountName:   sql.NullString{String: req.BankAccountName, Valid: true},
+		BankAccountHolder: sql.NullString{String: req.BankAccountHolder, Valid: true},
+		BankAccountNumber: sql.NullString{String: req.BankAccountNumber, Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Get file information if fileId exists
+	var fileURI, fileThumbnailURI string
+	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
+		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
+		if err == nil {
+			fileURI = file.FileUri
+			if file.FileThumnailUri.Valid {
+				fileThumbnailURI = file.FileThumnailUri.String
+			}
+		}
+	}
+
+	response := ProfileResponse{
+		Email:             updatedUser.Email,
+		Phone:             updatedUser.Phone,
+		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileURI:           fileURI,
+		FileThumbnailURI:  fileThumbnailURI,
+		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
+		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
+		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// POST /v1/user/link/phone
+func (h *ProfileHandler) LinkPhone(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req LinkPhoneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate phone format
+	if !validatePhone(req.Phone) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Check if phone is already taken
+	_, err = h.Queries.GetUserByPhone(c, req.Phone)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Phone is taken"})
+		return
+	}
+
+	// Link phone to user
+	updatedUser, err := h.Queries.LinkPhoneToUser(c, repository.LinkPhoneToUserParams{
+		ID:    userID,
+		Phone: req.Phone,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Get file information if fileId exists
+	var fileURI, fileThumbnailURI string
+	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
+		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
+		if err == nil {
+			fileURI = file.FileUri
+			if file.FileThumnailUri.Valid {
+				fileThumbnailURI = file.FileThumnailUri.String
+			}
+		}
+	}
+
+	response := ProfileResponse{
+		Email:             updatedUser.Email,
+		Phone:             updatedUser.Phone,
+		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileURI:           fileURI,
+		FileThumbnailURI:  fileThumbnailURI,
+		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
+		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
+		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// POST /v1/user/link/email
+func (h *ProfileHandler) LinkEmail(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req LinkEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Check if email is already taken
+	_, err = h.Queries.GetUserByEmail(c, req.Email)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Email is taken"})
+		return
+	}
+
+	// Link email to user
+	updatedUser, err := h.Queries.LinkEmailToUser(c, repository.LinkEmailToUserParams{
+		ID:    userID,
+		Email: req.Email,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Get file information if fileId exists
+	var fileURI, fileThumbnailURI string
+	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
+		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
+		if err == nil {
+			fileURI = file.FileUri
+			if file.FileThumnailUri.Valid {
+				fileThumbnailURI = file.FileThumnailUri.String
+			}
+		}
+	}
+
+	response := ProfileResponse{
+		Email:             updatedUser.Email,
+		Phone:             updatedUser.Phone,
+		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileURI:           fileURI,
+		FileThumbnailURI:  fileThumbnailURI,
+		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
+		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
+		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// Helper functions
+func validatePhone(phone string) bool {
+	// Phone should begin with + and international calling number
+	phoneRegex := regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
+	return phoneRegex.MatchString(phone)
+}
+
+func getStringFromNullString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+func getStringFromNullInt32(ni sql.NullInt32) string {
+	if ni.Valid {
+		return strconv.FormatInt(int64(ni.Int32), 10)
+	}
+	return ""
+}
+-e 
+=== ./routes/file.go ===
+// routes/file.go
+package routes
+
+import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"tutuplapak-go/repository"
+
+	"github.com/gin-gonic/gin"
+)
+
+type FileHandler struct {
+	Queries *repository.Queries
+}
+
+func NewFileHandler(queries *repository.Queries) *FileHandler {
+	return &FileHandler{Queries: queries}
+}
+
+type FileUploadResponse struct {
+	FileID           string `json:"fileId"`
+	FileURI          string `json:"fileUri"`
+	FileThumbnailURI string `json:"fileThumbnailUri"`
+}
+
+// POST /v1/file
+func (h *FileHandler) UploadFile(c *gin.Context) {
+	// Get the file from form data
+	file, header, err := c.Request.FormFile("flle") // Note: typo in requirement "flle" not "file"
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+	defer file.Close()
+
+	// Validate file type
+	if !isValidImageType(header) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate file size (max 100KiB = 102400 bytes)
+	if header.Size > 102400 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Generate unique file ID
+	fileID := generateFileID()
+
+	// Get file extension
+	ext := filepath.Ext(header.Filename)
+
+	// Create file paths
+	fileName := fileID + ext
+	filePath := filepath.Join("uploads", fileName)
+	thumbnailName := fileID + "_thumb" + ext
+	thumbnailPath := filepath.Join("uploads", thumbnailName)
+
+	// Ensure uploads directory exists
+	os.MkdirAll("uploads", 0o755)
+
+	// Save original file
+	out, err := os.Create(filePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// Create thumbnail (simplified - in production use image processing library)
+	err = createThumbnail(filePath, thumbnailPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	// In production, upload to AWS S3 and get actual URIs
+	// For now, we'll use local paths
+	fileURI := fmt.Sprintf("http://localhost:8080/uploads/%s", fileName)
+	thumbnailURI := fmt.Sprintf("http://localhost:8080/uploads/%s", thumbnailName)
+
+	// Save file info to database
+	savedFile, err := h.Queries.CreateFile(c, repository.CreateFileParams{
+		FileUri: fileURI,
+		FileThumnailUri: sql.NullString{
+			String: thumbnailURI,
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	response := FileUploadResponse{
+		FileID:           fmt.Sprintf("%d", savedFile.ID), // Convert ID to string
+		FileURI:          savedFile.FileUri,
+		FileThumbnailURI: savedFile.FileThumnailUri.String,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// Helper functions
+func generateFileID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+func isValidImageType(header *multipart.FileHeader) bool {
+	contentType := header.Header.Get("Content-Type")
+	validTypes := []string{"image/jpeg", "image/jpg", "image/png"}
+
+	if slices.Contains(validTypes, contentType) {
+		return true
+	}
+
+	// Also check file extension as fallback
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	validExts := []string{".jpg", ".jpeg", ".png"}
+
+	return slices.Contains(validExts, ext)
+}
+
+func createThumbnail(sourcePath, thumbnailPath string) error {
+	// Simplified thumbnail creation - just copy the file
+	// In production, use image processing library like imaging or resize
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(thumbnailPath)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
+}

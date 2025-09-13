@@ -1,5 +1,3 @@
--- query/user.sql - Complete queries for authentication and profile management
-
 -- Authentication queries
 -- name: CreateUser :one
 INSERT INTO users (email, password)
@@ -58,19 +56,3 @@ SET
     updated_at = NOW()
 WHERE id = $1
     RETURNING id, file_id, email, phone, bank_account_name, bank_account_holder, bank_account_number, created_at, updated_at;
-
--- File management queries
--- name: GetFileByID :one
-SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
-FROM files
-WHERE id = $1;
-
--- name: GetFileByStringID :one
-SELECT id, file_uri, file_thumnail_uri, created_at, updated_at
-FROM files
-WHERE id = $1::integer;
-
--- name: CreateFile :one
-INSERT INTO files (file_uri, file_thumnail_uri, created_at, updated_at)
-VALUES ($1, $2, NOW(), NOW())
-    RETURNING id, file_uri, file_thumnail_uri, created_at, updated_at;

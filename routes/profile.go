@@ -1,14 +1,12 @@
-// routes/profile.go
 package routes
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
-	"regexp"
 	"strconv"
 
 	"tutuplapak-go/repository"
+	"tutuplapak-go/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -53,7 +51,7 @@ type ProfileResponse struct {
 func getUserIDFromContext(c *gin.Context) (int32, error) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		return 0, fmt.Errorf("user not found in context")
+		return 0, nil
 	}
 	return userID.(int32), nil
 }
@@ -72,29 +70,22 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// Get file information if fileId exists
-	var fileURI, fileThumbnailURI string
-	if user.FileID.Valid && user.FileID.Int32 > 0 {
-		file, err := h.Queries.GetFileByID(c, user.FileID.Int32)
-		if err == nil {
-			fileURI = file.FileUri
-			if file.FileThumnailUri.Valid {
-				fileThumbnailURI = file.FileThumnailUri.String
-			}
-		}
+	fileURI, fileThumbnailURI, err := utils.GetFileInfo(h.Queries, c, user.FileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
 	}
 
 	response := ProfileResponse{
 		Email:             user.Email,
 		Phone:             user.Phone,
-		FileID:            getStringFromNullInt32(user.FileID),
+		FileID:            utils.NullInt32ToString(user.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
-		BankAccountName:   getStringFromNullString(user.BankAccountName),
-		BankAccountHolder: getStringFromNullString(user.BankAccountHolder),
-		BankAccountNumber: getStringFromNullString(user.BankAccountNumber),
+		BankAccountName:   utils.NullStringToString(user.BankAccountName),
+		BankAccountHolder: utils.NullStringToString(user.BankAccountHolder),
+		BankAccountNumber: utils.NullStringToString(user.BankAccountNumber),
 	}
-
 	c.JSON(http.StatusOK, response)
 }
 
@@ -115,14 +106,11 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	// Validate fileId if provided
 	var fileID sql.NullInt32
 	if req.FileID != "" {
-		// Convert string fileId to int32
 		fileIDInt, err := strconv.Atoi(req.FileID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 			return
 		}
-
-		// Check if file exists
 		_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
@@ -144,29 +132,22 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Get file information if fileId exists
-	var fileURI, fileThumbnailURI string
-	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
-		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
-		if err == nil {
-			fileURI = file.FileUri
-			if file.FileThumnailUri.Valid {
-				fileThumbnailURI = file.FileThumnailUri.String
-			}
-		}
+	fileURI, fileThumbnailURI, err := utils.GetFileInfo(h.Queries, c, updatedUser.FileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
 	}
 
 	response := ProfileResponse{
 		Email:             updatedUser.Email,
 		Phone:             updatedUser.Phone,
-		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
-		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
-		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
-		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+		BankAccountName:   utils.NullStringToString(updatedUser.BankAccountName),
+		BankAccountHolder: utils.NullStringToString(updatedUser.BankAccountHolder),
+		BankAccountNumber: utils.NullStringToString(updatedUser.BankAccountNumber),
 	}
-
 	c.JSON(http.StatusOK, response)
 }
 
@@ -185,7 +166,7 @@ func (h *ProfileHandler) LinkPhone(c *gin.Context) {
 	}
 
 	// Validate phone format
-	if !validatePhone(req.Phone) {
+	if !utils.ValidatePhone(req.Phone) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -207,29 +188,22 @@ func (h *ProfileHandler) LinkPhone(c *gin.Context) {
 		return
 	}
 
-	// Get file information if fileId exists
-	var fileURI, fileThumbnailURI string
-	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
-		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
-		if err == nil {
-			fileURI = file.FileUri
-			if file.FileThumnailUri.Valid {
-				fileThumbnailURI = file.FileThumnailUri.String
-			}
-		}
+	fileURI, fileThumbnailURI, err := utils.GetFileInfo(h.Queries, c, updatedUser.FileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
 	}
 
 	response := ProfileResponse{
 		Email:             updatedUser.Email,
 		Phone:             updatedUser.Phone,
-		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
-		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
-		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
-		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+		BankAccountName:   utils.NullStringToString(updatedUser.BankAccountName),
+		BankAccountHolder: utils.NullStringToString(updatedUser.BankAccountHolder),
+		BankAccountNumber: utils.NullStringToString(updatedUser.BankAccountNumber),
 	}
-
 	c.JSON(http.StatusOK, response)
 }
 
@@ -264,49 +238,21 @@ func (h *ProfileHandler) LinkEmail(c *gin.Context) {
 		return
 	}
 
-	// Get file information if fileId exists
-	var fileURI, fileThumbnailURI string
-	if updatedUser.FileID.Valid && updatedUser.FileID.Int32 > 0 {
-		file, err := h.Queries.GetFileByID(c, updatedUser.FileID.Int32)
-		if err == nil {
-			fileURI = file.FileUri
-			if file.FileThumnailUri.Valid {
-				fileThumbnailURI = file.FileThumnailUri.String
-			}
-		}
+	fileURI, fileThumbnailURI, err := utils.GetFileInfo(h.Queries, c, updatedUser.FileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
 	}
 
 	response := ProfileResponse{
 		Email:             updatedUser.Email,
 		Phone:             updatedUser.Phone,
-		FileID:            getStringFromNullInt32(updatedUser.FileID),
+		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
-		BankAccountName:   getStringFromNullString(updatedUser.BankAccountName),
-		BankAccountHolder: getStringFromNullString(updatedUser.BankAccountHolder),
-		BankAccountNumber: getStringFromNullString(updatedUser.BankAccountNumber),
+		BankAccountName:   utils.NullStringToString(updatedUser.BankAccountName),
+		BankAccountHolder: utils.NullStringToString(updatedUser.BankAccountHolder),
+		BankAccountNumber: utils.NullStringToString(updatedUser.BankAccountNumber),
 	}
-
 	c.JSON(http.StatusOK, response)
-}
-
-// Helper functions
-func validatePhone(phone string) bool {
-	// Phone should begin with + and international calling number
-	phoneRegex := regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
-	return phoneRegex.MatchString(phone)
-}
-
-func getStringFromNullString(ns sql.NullString) string {
-	if ns.Valid {
-		return ns.String
-	}
-	return ""
-}
-
-func getStringFromNullInt32(ni sql.NullInt32) string {
-	if ni.Valid {
-		return strconv.FormatInt(int64(ni.Int32), 10)
-	}
-	return ""
 }

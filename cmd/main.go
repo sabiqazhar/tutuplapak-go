@@ -1,4 +1,3 @@
-// cmd/main.go
 package main
 
 import (
@@ -6,7 +5,7 @@ import (
 
 	"tutuplapak-go/middleware"
 	"tutuplapak-go/provider"
-	"tutuplapak-go/repository" // sqlc generated
+	"tutuplapak-go/repository"
 	"tutuplapak-go/routes"
 	"tutuplapak-go/utils"
 

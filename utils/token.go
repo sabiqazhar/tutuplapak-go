@@ -1,7 +1,8 @@
-// utils/token.go
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -22,10 +23,15 @@ var GlobalTokenStore = &TokenStore{
 	tokens: make(map[string]TokenData),
 }
 
+func GenerateToken() string {
+	bytes := make([]byte, 32)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
 func (ts *TokenStore) StoreToken(token string, userID int32) {
 	ts.mutex.Lock()
 	defer ts.mutex.Unlock()
-
 	ts.tokens[token] = TokenData{
 		UserID:    userID,
 		CreatedAt: time.Now(),
@@ -36,26 +42,22 @@ func (ts *TokenStore) StoreToken(token string, userID int32) {
 func (ts *TokenStore) GetUserID(token string) (int32, bool) {
 	ts.mutex.RLock()
 	defer ts.mutex.RUnlock()
-
 	tokenData, exists := ts.tokens[token]
 	if !exists {
 		return 0, false
 	}
-
 	// Check if token is expired
 	if time.Now().After(tokenData.ExpiresAt) {
 		// Clean up expired token
 		delete(ts.tokens, token)
 		return 0, false
 	}
-
 	return tokenData.UserID, true
 }
 
 func (ts *TokenStore) DeleteToken(token string) {
 	ts.mutex.Lock()
 	defer ts.mutex.Unlock()
-
 	delete(ts.tokens, token)
 }
 
@@ -63,7 +65,6 @@ func (ts *TokenStore) DeleteToken(token string) {
 func (ts *TokenStore) CleanupExpiredTokens() {
 	ts.mutex.Lock()
 	defer ts.mutex.Unlock()
-
 	now := time.Now()
 	for token, tokenData := range ts.tokens {
 		if now.After(tokenData.ExpiresAt) {

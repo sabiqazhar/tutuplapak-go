@@ -1,4 +1,3 @@
-// routes/file.go
 package routes
 
 import (
@@ -36,7 +35,7 @@ type FileUploadResponse struct {
 // POST /v1/file
 func (h *FileHandler) UploadFile(c *gin.Context) {
 	// Get the file from form data
-	file, header, err := c.Request.FormFile("flle") // Note: typo in requirement "flle" not "file"
+	file, header, err := c.Request.FormFile("file") // Fixed typo from "flle" to "file"
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
@@ -114,7 +113,6 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		FileURI:          savedFile.FileUri,
 		FileThumbnailURI: savedFile.FileThumnailUri.String,
 	}
-
 	c.JSON(http.StatusOK, response)
 }
 
@@ -128,7 +126,6 @@ func generateFileID() string {
 func isValidImageType(header *multipart.FileHeader) bool {
 	contentType := header.Header.Get("Content-Type")
 	validTypes := []string{"image/jpeg", "image/jpg", "image/png"}
-
 	if slices.Contains(validTypes, contentType) {
 		return true
 	}
@@ -136,7 +133,6 @@ func isValidImageType(header *multipart.FileHeader) bool {
 	// Also check file extension as fallback
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	validExts := []string{".jpg", ".jpeg", ".png"}
-
 	return slices.Contains(validExts, ext)
 }
 
