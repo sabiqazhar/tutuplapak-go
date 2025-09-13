@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	dataSourceName := "host=localhost user=postgres password=yourpassword dbname=yourdbname port=5432 sslmode=disable TimeZone=Asia/Jakarta"
+	dataSourceName := "host=localhost user=user password=password dbname=tutuplapak port=5433 sslmode=disable TimeZone=Asia/Jakarta"
 
 	// Init DB
 	db := provider.InitDB(dataSourceName)
@@ -25,6 +25,7 @@ func main() {
 	authHandler := routes.NewAuthHandler(queries)
 	profileHandler := routes.NewProfileHandler(queries)
 	fileHandler := routes.NewFileHandler(queries)
+	productHandler := routes.NewProductHandler(queries)
 
 	// Start token cleanup routine
 	utils.GlobalTokenStore.StartCleanupRoutine()
@@ -54,6 +55,7 @@ func main() {
 			protected.PUT("/user", profileHandler.UpdateProfile)
 			protected.POST("/user/link/phone", profileHandler.LinkPhone)
 			protected.POST("/user/link/email", profileHandler.LinkEmail)
+			protected.POST("/product", productHandler.CreateProduct)
 		}
 	}
 
