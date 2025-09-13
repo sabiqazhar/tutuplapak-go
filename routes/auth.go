@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"regexp"
+
 	"tutuplapak-go/repository" // sqlc generated code
 	"tutuplapak-go/utils"      // token management
 
@@ -54,12 +54,6 @@ func generateToken() string {
 	bytes := make([]byte, 32)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
-}
-
-func validatePhone(phone string) bool {
-	// Phone should begin with + and international calling number
-	phoneRegex := regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
-	return phoneRegex.MatchString(phone)
 }
 
 // Email Registration - POST /v1/register/email

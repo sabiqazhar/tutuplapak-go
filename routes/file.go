@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"tutuplapak-go/repository"
@@ -67,7 +68,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	thumbnailPath := filepath.Join("uploads", thumbnailName)
 
 	// Ensure uploads directory exists
-	os.MkdirAll("uploads", 0755)
+	os.MkdirAll("uploads", 0o755)
 
 	// Save original file
 	out, err := os.Create(filePath)
@@ -128,23 +129,15 @@ func isValidImageType(header *multipart.FileHeader) bool {
 	contentType := header.Header.Get("Content-Type")
 	validTypes := []string{"image/jpeg", "image/jpg", "image/png"}
 
-	for _, validType := range validTypes {
-		if contentType == validType {
-			return true
-		}
+	if slices.Contains(validTypes, contentType) {
+		return true
 	}
 
 	// Also check file extension as fallback
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	validExts := []string{".jpg", ".jpeg", ".png"}
 
-	for _, validExt := range validExts {
-		if ext == validExt {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(validExts, ext)
 }
 
 func createThumbnail(sourcePath, thumbnailPath string) error {
