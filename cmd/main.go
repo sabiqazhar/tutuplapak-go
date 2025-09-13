@@ -26,6 +26,7 @@ func main() {
 	profileHandler := routes.NewProfileHandler(queries)
 	fileHandler := routes.NewFileHandler(queries)
 	productHandler := routes.NewProductHandler(queries)
+	purchaseHandler := routes.NewPurchaseHandler(queries, db)
 
 	// Start token cleanup routine
 	utils.GlobalTokenStore.StartCleanupRoutine()
@@ -57,6 +58,7 @@ func main() {
 			protected.POST("/user/link/phone", profileHandler.LinkPhone)
 			protected.POST("/user/link/email", profileHandler.LinkEmail)
 			protected.POST("/product", productHandler.CreateProduct)
+			protected.POST("/purchase", purchaseHandler.CreatePurchase)
 		}
 	}
 
