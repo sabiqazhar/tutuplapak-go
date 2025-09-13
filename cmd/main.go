@@ -45,6 +45,7 @@ func main() {
 		v1.POST("/register/email", authHandler.RegisterEmail)
 		v1.POST("/register/phone", authHandler.RegisterPhone)
 		v1.POST("/file", fileHandler.UploadFile)
+		v1.GET("/product", productHandler.GetProducts)
 
 		// Protected routes (require authentication)
 		protected := v1.Group("/")

@@ -104,3 +104,102 @@ func (q *Queries) GetProductBySKUAndUserID(ctx context.Context, arg GetProductBy
 	)
 	return i, err
 }
+
+const getProductCategoryByName = `-- name: GetProductCategoryByName :one
+SELECT product_category_id FROM product_category WHERE name = $1
+`
+
+func (q *Queries) GetProductCategoryByName(ctx context.Context, name sql.NullString) (int32, error) {
+	row := q.db.QueryRowContext(ctx, getProductCategoryByName, name)
+	var product_category_id int32
+	err := row.Scan(&product_category_id)
+	return product_category_id, err
+}
+
+const listProducts = `-- name: ListProducts :many
+SELECT
+    p.product_id, p.user_id, p.name, pc.name as category_name, p.qty, p.price, p.sku, p.file_id, p.created_at, p.updated_at,
+    f.file_uri, f.file_thumnail_uri
+FROM products p
+         JOIN product_category pc ON p.category = pc.product_category_id
+         LEFT JOIN files f on p.file_id = f.id
+WHERE
+    ($1::INT IS NULL OR p.product_id = $1) AND
+    ($2::TEXT IS NULL OR p.sku = $2) AND
+    ($3::TEXT IS NULL OR pc.name = $3)
+ORDER BY
+    CASE WHEN $4::TEXT = 'newest' THEN p.created_at END DESC,
+    CASE WHEN $4::TEXT = 'oldest' THEN p.created_at END ASC,
+    CASE WHEN $4::TEXT = 'cheapest' THEN p.price END ASC,
+    CASE WHEN $4::TEXT = 'expensive' THEN p.price END DESC,
+    p.created_at DESC
+    LIMIT $6
+OFFSET $5
+`
+
+type ListProductsParams struct {
+	ProductID sql.NullInt32  `json:"product_id"`
+	Sku       sql.NullString `json:"sku"`
+	Category  sql.NullString `json:"category"`
+	SortBy    sql.NullString `json:"sort_by"`
+	Offset    int32          `json:"offset"`
+	Limit     int32          `json:"limit"`
+}
+
+type ListProductsRow struct {
+	ProductID       int32          `json:"product_id"`
+	UserID          sql.NullInt32  `json:"user_id"`
+	Name            sql.NullString `json:"name"`
+	CategoryName    sql.NullString `json:"category_name"`
+	Qty             sql.NullInt32  `json:"qty"`
+	Price           sql.NullString `json:"price"`
+	Sku             sql.NullString `json:"sku"`
+	FileID          sql.NullInt32  `json:"file_id"`
+	CreatedAt       sql.NullTime   `json:"created_at"`
+	UpdatedAt       sql.NullTime   `json:"updated_at"`
+	FileUri         sql.NullString `json:"file_uri"`
+	FileThumnailUri sql.NullString `json:"file_thumnail_uri"`
+}
+
+func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProducts,
+		arg.ProductID,
+		arg.Sku,
+		arg.Category,
+		arg.SortBy,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsRow
+	for rows.Next() {
+		var i ListProductsRow
+		if err := rows.Scan(
+			&i.ProductID,
+			&i.UserID,
+			&i.Name,
+			&i.CategoryName,
+			&i.Qty,
+			&i.Price,
+			&i.Sku,
+			&i.FileID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FileUri,
+			&i.FileThumnailUri,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
