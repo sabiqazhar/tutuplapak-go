@@ -84,14 +84,6 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 		}
 	}
 
-	tx, err := h.DB.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
-		return
-	}
-	defer tx.Rollback()
-
-	qtx := h.Queries.WithTx(tx)
 	ctx := context.Background()
 
 	var productSnapshots []repository.Product
@@ -106,7 +98,7 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 			return
 		}
 
-		product, err := qtx.GetProductForUpdate(ctx, int32(productID))
+		product, err := h.Queries.GetProductForUpdate(ctx, int32(productID))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Product with ID %s not found", item.ProductID)})
@@ -129,7 +121,7 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 		total += int32(itemTotal)
 	}
 
-	purchase, err := qtx.CreatePurchase(ctx, repository.CreatePurchaseParams{
+	purchase, err := h.Queries.CreatePurchase(ctx, repository.CreatePurchaseParams{
 		SenderName:          sql.NullString{String: req.SenderName, Valid: true},
 		SenderContactType:   sql.NullString{String: req.SenderContactType, Valid: true},
 		SenderContactDetail: sql.NullString{String: req.SenderContactDetail, Valid: true},
@@ -147,7 +139,7 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 		price, _ := strconv.ParseFloat(snapshot.Price.String, 64)
 		itemTotal := price * float64(req.PurchasedItems[i].Qty)
 
-		err := qtx.CreatePurchaseItem(ctx, repository.CreatePurchaseItemParams{
+		err := h.Queries.CreatePurchaseItem(ctx, repository.CreatePurchaseItemParams{
 			PurchaseID: purchase.ID,
 			ProductID:  snapshot.ProductID,
 			Qty:        sql.NullInt32{Int32: req.PurchasedItems[i].Qty, Valid: true},
@@ -191,7 +183,7 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 
 	var paymentDetailsResponse []PaymentDetailResponse
 	for sellerID, subtotal := range sellerSubtotals {
-		bankDetails, err := qtx.GetSellerBankDetailsByUserID(ctx, sellerID)
+		bankDetails, err := h.Queries.GetSellerBankDetailsByUserID(ctx, sellerID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve seller bank details"})
 			return
@@ -202,11 +194,6 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 			BankAccountNumber: utils.NullStringToString(bankDetails.BankAccountNumber),
 			TotalPrice:        subtotal,
 		})
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
-		return
 	}
 
 	c.JSON(http.StatusCreated, CreatePurchaseResponse{

@@ -79,7 +79,6 @@ SELECT
     product_id, user_id, name, category, qty, price, sku, file_id, created_at, updated_at
 FROM products
 WHERE product_id = $1
-    FOR UPDATE
 `
 
 // This query now only fetches from the products table, without the JOIN.

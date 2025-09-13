@@ -3,8 +3,7 @@
 SELECT
     product_id, user_id, name, category, qty, price, sku, file_id, created_at, updated_at
 FROM products
-WHERE product_id = $1
-    FOR UPDATE;
+WHERE product_id = $1;
 
 -- name: GetProductCategoryByID :one
 -- New query to fetch a category name by its ID.
