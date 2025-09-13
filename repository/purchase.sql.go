@@ -10,6 +10,22 @@ import (
 	"database/sql"
 )
 
+const createPaymentDetail = `-- name: CreatePaymentDetail :exec
+INSERT INTO payment_detail (purchase_id, user_id, file_id)
+VALUES ($1, $2, $3)
+`
+
+type CreatePaymentDetailParams struct {
+	PurchaseID int32         `json:"purchase_id"`
+	UserID     sql.NullInt32 `json:"user_id"`
+	FileID     sql.NullInt32 `json:"file_id"`
+}
+
+func (q *Queries) CreatePaymentDetail(ctx context.Context, arg CreatePaymentDetailParams) error {
+	_, err := q.db.ExecContext(ctx, createPaymentDetail, arg.PurchaseID, arg.UserID, arg.FileID)
+	return err
+}
+
 const createPurchase = `-- name: CreatePurchase :one
 INSERT INTO purchases (sender_name, sender_contact_type, sender_contact_detail, total, created_at, updated_at)
 VALUES ($1, $2, $3, $4, NOW(), NOW())
@@ -100,6 +116,85 @@ func (q *Queries) GetProductForUpdate(ctx context.Context, productID int32) (Pro
 	return i, err
 }
 
+const getPurchaseByID = `-- name: GetPurchaseByID :one
+SELECT id, sender_name, sender_contact_type, sender_contact_detail, total, is_paid, created_at, updated_at
+FROM purchases
+WHERE id = $1
+`
+
+type GetPurchaseByIDRow struct {
+	ID                  int32          `json:"id"`
+	SenderName          sql.NullString `json:"sender_name"`
+	SenderContactType   sql.NullString `json:"sender_contact_type"`
+	SenderContactDetail sql.NullString `json:"sender_contact_detail"`
+	Total               sql.NullInt32  `json:"total"`
+	IsPaid              sql.NullBool   `json:"is_paid"`
+	CreatedAt           sql.NullTime   `json:"created_at"`
+	UpdatedAt           sql.NullTime   `json:"updated_at"`
+}
+
+func (q *Queries) GetPurchaseByID(ctx context.Context, id int32) (GetPurchaseByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getPurchaseByID, id)
+	var i GetPurchaseByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.SenderName,
+		&i.SenderContactType,
+		&i.SenderContactDetail,
+		&i.Total,
+		&i.IsPaid,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPurchaseItemsByPurchaseID = `-- name: GetPurchaseItemsByPurchaseID :many
+SELECT pi.id, pi.purchase_id, pi.product_id, pi.qty, pi.total, p.user_id
+FROM purchase_item pi
+JOIN products p ON pi.product_id = p.product_id
+WHERE pi.purchase_id = $1
+`
+
+type GetPurchaseItemsByPurchaseIDRow struct {
+	ID         int32          `json:"id"`
+	PurchaseID int32          `json:"purchase_id"`
+	ProductID  int32          `json:"product_id"`
+	Qty        sql.NullInt32  `json:"qty"`
+	Total      sql.NullString `json:"total"`
+	UserID     sql.NullInt32  `json:"user_id"`
+}
+
+func (q *Queries) GetPurchaseItemsByPurchaseID(ctx context.Context, purchaseID int32) ([]GetPurchaseItemsByPurchaseIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPurchaseItemsByPurchaseID, purchaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPurchaseItemsByPurchaseIDRow
+	for rows.Next() {
+		var i GetPurchaseItemsByPurchaseIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PurchaseID,
+			&i.ProductID,
+			&i.Qty,
+			&i.Total,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSellerBankDetailsByUserID = `-- name: GetSellerBankDetailsByUserID :one
 SELECT bank_account_name, bank_account_holder, bank_account_number
 FROM users
@@ -117,4 +212,31 @@ func (q *Queries) GetSellerBankDetailsByUserID(ctx context.Context, id int32) (G
 	var i GetSellerBankDetailsByUserIDRow
 	err := row.Scan(&i.BankAccountName, &i.BankAccountHolder, &i.BankAccountNumber)
 	return i, err
+}
+
+const updateProductQuantity = `-- name: UpdateProductQuantity :exec
+UPDATE products 
+SET qty = qty - $2, updated_at = NOW()
+WHERE product_id = $1
+`
+
+type UpdateProductQuantityParams struct {
+	ProductID int32         `json:"product_id"`
+	Qty       sql.NullInt32 `json:"qty"`
+}
+
+func (q *Queries) UpdateProductQuantity(ctx context.Context, arg UpdateProductQuantityParams) error {
+	_, err := q.db.ExecContext(ctx, updateProductQuantity, arg.ProductID, arg.Qty)
+	return err
+}
+
+const updatePurchasePaymentStatus = `-- name: UpdatePurchasePaymentStatus :exec
+UPDATE purchases 
+SET is_paid = TRUE, updated_at = NOW()
+WHERE id = $1
+`
+
+func (q *Queries) UpdatePurchasePaymentStatus(ctx context.Context, id int32) error {
+	_, err := q.db.ExecContext(ctx, updatePurchasePaymentStatus, id)
+	return err
 }

@@ -49,6 +49,7 @@ type Purchase struct {
 	Total               sql.NullInt32  `json:"total"`
 	CreatedAt           sql.NullTime   `json:"created_at"`
 	UpdatedAt           sql.NullTime   `json:"updated_at"`
+	IsPaid              sql.NullBool   `json:"is_paid"`
 }
 
 type PurchaseItem struct {

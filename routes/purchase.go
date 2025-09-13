@@ -63,6 +63,10 @@ type CreatePurchaseResponse struct {
 	PaymentDetails []PaymentDetailResponse `json:"paymentDetails"`
 }
 
+type PaymentConfirmationRequest struct {
+	FileIDs []string `json:"fileIds" binding:"required,min=1"`
+}
+
 // POST /v1/purchase
 func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 	var req CreatePurchaseRequest
@@ -202,4 +206,138 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 		TotalPrice:     overallTotalPrice,
 		PaymentDetails: paymentDetailsResponse,
 	})
+}
+
+func (h *PurchaseHandler) ConfirmPayment(c *gin.Context) {
+	purchaseIDStr := c.Param("purchaseId")
+	purchaseID, err := strconv.Atoi(purchaseIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid purchase ID format"})
+		return
+	}
+
+	var req PaymentConfirmationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := context.Background()
+
+	// Begin transaction
+	tx, err := h.DB.BeginTx(ctx, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.Queries.WithTx(tx)
+
+	// Get purchase details
+	purchase, err := qtx.GetPurchaseByID(ctx, int32(purchaseID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Purchase not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve purchase"})
+		return
+	}
+
+	// Check if already paid
+	if purchase.IsPaid.Valid && purchase.IsPaid.Bool {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Purchase already paid"})
+		return
+	}
+
+	// Get purchase items with seller information
+	purchaseItems, err := qtx.GetPurchaseItemsByPurchaseID(ctx, int32(purchaseID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve purchase items"})
+		return
+	}
+
+	// Group items by seller
+	sellerItems := make(map[int32][]repository.GetPurchaseItemsByPurchaseIDRow)
+	for _, item := range purchaseItems {
+		if item.UserID.Valid {
+			sellerItems[item.UserID.Int32] = append(sellerItems[item.UserID.Int32], item)
+		}
+	}
+
+	// Validate file IDs count matches number of sellers
+	if len(req.FileIDs) != len(sellerItems) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Number of file IDs (%d) must match number of sellers (%d)", len(req.FileIDs), len(sellerItems))})
+		return
+	}
+
+	// Validate all file IDs exist
+	for _, fileIDStr := range req.FileIDs {
+		fileID, err := strconv.Atoi(fileIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID format"})
+			return
+		}
+
+		file, err := qtx.GetFileByID(ctx, int32(fileID))
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("File with ID %s not found", fileIDStr)})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate file"})
+			return
+		}
+		_ = file 
+	}
+
+	// Create payment details for each seller
+	fileIndex := 0
+	for sellerID, items := range sellerItems {
+		fileID, err := strconv.Atoi(req.FileIDs[fileIndex])
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID format"})
+			return
+		}
+
+		err = qtx.CreatePaymentDetail(ctx, repository.CreatePaymentDetailParams{
+			PurchaseID: int32(purchaseID),
+			UserID:     sql.NullInt32{Int32: sellerID, Valid: true},
+			FileID:     sql.NullInt32{Int32: int32(fileID), Valid: true},
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create payment detail"})
+			return
+		}
+
+		// Update product quantities (decrease even if it goes negative)
+		for _, item := range items {
+			err = qtx.UpdateProductQuantity(ctx, repository.UpdateProductQuantityParams{
+				ProductID: item.ProductID,
+				Qty:       item.Qty,
+			})
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product quantity"})
+				return
+			}
+		}
+
+		fileIndex++
+	}
+
+	// Update purchase status to paid
+	err = qtx.UpdatePurchasePaymentStatus(ctx, int32(purchaseID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update payment status"})
+		return
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Payment confirmed successfully"})
 }
