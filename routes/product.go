@@ -69,19 +69,9 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 		return
 	}
 
-	// Check if SKU already exists for this user
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	_, err = h.Queries.GetProductBySKUAndUserID(c, repository.GetProductBySKUAndUserIDParams{
-		Sku:    sql.NullString{String: req.Sku, Valid: true},
-		UserID: sql.NullInt32{Int32: userID, Valid: true},
-	})
-	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "sku already exists"})
 		return
 	}
 
