@@ -1,5 +1,3 @@
-USE db
-
 -- Table: files (harus dibuat dulu karena direferensikan)
 CREATE TABLE files (
     id SERIAL PRIMARY KEY,

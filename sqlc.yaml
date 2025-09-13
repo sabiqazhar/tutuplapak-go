@@ -1,12 +1,12 @@
 version: "2"
 sql:
-  - schema: "../migrations/000001_create_users_table.up.sql"
-    queries: "./user.sql"
+  - schema: "./migrations/000001_create_init_tabel.up.sql"
+    queries: "./query"
     engine: "postgresql"
     gen:
       go:
         package: "repository"
-        out: "../repository"
+        out: "./repository"
         emit_json_tags: true
         emit_prepared_queries: false
         emit_interface: false
