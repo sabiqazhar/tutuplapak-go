@@ -69,19 +69,9 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 		return
 	}
 
-	// Check if SKU already exists for this user
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	_, err = h.Queries.GetProductBySKUAndUserID(c, repository.GetProductBySKUAndUserIDParams{
-		Sku:    sql.NullString{String: req.Sku, Valid: true},
-		UserID: sql.NullInt32{Int32: userID, Valid: true},
-	})
-	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "sku already exists"})
 		return
 	}
 
@@ -242,4 +232,158 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *ProductHandler) UpdateProduct(c *gin.Context) {
+	userId, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	var req CreateProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+	}
+
+	fileIDInt, err := strconv.Atoi(req.FileID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
+		return
+	}
+	_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid / exists"})
+		return
+	}
+
+	updatedProduct, err := h.Queries.UpdateProduct(c, repository.UpdateProductParams{
+		ProductID: int32(productID),
+		Name:      sql.NullString{String: req.Name, Valid: true},
+		Category:  sql.NullInt32{Int32: req.Category, Valid: true},
+		Qty:       sql.NullInt32{Int32: req.Qty, Valid: true},
+		Price:     sql.NullString{String: fmt.Sprintf("%d", req.Price), Valid: true},
+		Sku:       sql.NullString{String: req.Sku, Valid: true},
+		FileID:    sql.NullInt32{Int32: int32(fileIDInt), Valid: true},
+		UserID:    sql.NullInt32{Int32: userId, Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error while updating"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product updated successfully", "product_id": updatedProduct.ProductID})
+}
+
+func (h *ProductHandler) DeleteProduct(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	product, err := h.Queries.GetProductByID(c, int32(productID))
+	if err != nil || product.UserID.Int32 != userID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	err = h.Queries.DeleteProduct(c, repository.DeleteProductParams{
+		ProductID: int32(productID),
+		UserID:    sql.NullInt32{Int32: userID, Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
+}
+
+func (h *ProductHandler) UpdateProduct(c *gin.Context) {
+	userId, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	var req CreateProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+	}
+
+	fileIDInt, err := strconv.Atoi(req.FileID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
+		return
+	}
+	_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid / exists"})
+		return
+	}
+
+	updatedProduct, err := h.Queries.UpdateProduct(c, repository.UpdateProductParams{
+		ProductID: int32(productID),
+		Name:      sql.NullString{String: req.Name, Valid: true},
+		Category:  sql.NullInt32{Int32: req.Category, Valid: true},
+		Qty:       sql.NullInt32{Int32: req.Qty, Valid: true},
+		Price:     sql.NullString{String: fmt.Sprintf("%d", req.Price), Valid: true},
+		Sku:       sql.NullString{String: req.Sku, Valid: true},
+		FileID:    sql.NullInt32{Int32: int32(fileIDInt), Valid: true},
+		UserID:    sql.NullInt32{Int32: userId, Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error while updating"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product updated successfully", "product_id": updatedProduct.ProductID})
+}
+
+func (h *ProductHandler) DeleteProduct(c *gin.Context) {
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	product, err := h.Queries.GetProductByID(c, int32(productID))
+	if err != nil || product.UserID.Int32 != userID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	err = h.Queries.DeleteProduct(c, repository.DeleteProductParams{
+		ProductID: int32(productID),
+		UserID:    sql.NullInt32{Int32: userID, Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
 }

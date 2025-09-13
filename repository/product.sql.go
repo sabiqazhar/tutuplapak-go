@@ -52,6 +52,21 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 	return i, err
 }
 
+const deleteProduct = `-- name: DeleteProduct :exec
+DELETE FROM products
+WHERE product_id = $1 AND user_id = $2
+`
+
+type DeleteProductParams struct {
+	ProductID int32         `json:"product_id"`
+	UserID    sql.NullInt32 `json:"user_id"`
+}
+
+func (q *Queries) DeleteProduct(ctx context.Context, arg DeleteProductParams) error {
+	_, err := q.db.ExecContext(ctx, deleteProduct, arg.ProductID, arg.UserID)
+	return err
+}
+
 const getProductByID = `-- name: GetProductByID :one
 SELECT product_id, user_id, name, category, qty, price, sku, file_id, created_at, updated_at
 FROM products
@@ -202,4 +217,56 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]L
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProduct = `-- name: UpdateProduct :one
+UPDATE products
+SET
+    name = $2,
+    category = $3,
+    qty = $4,
+    price = $5,
+    sku = $6,
+    file_id = $7,
+    updated_at = NOW()
+WHERE product_id = $1 AND user_id = $8
+RETURNING product_id, user_id, name, category, qty, price, sku, file_id, created_at, updated_at
+`
+
+type UpdateProductParams struct {
+	ProductID int32          `json:"product_id"`
+	Name      sql.NullString `json:"name"`
+	Category  sql.NullInt32  `json:"category"`
+	Qty       sql.NullInt32  `json:"qty"`
+	Price     sql.NullString `json:"price"`
+	Sku       sql.NullString `json:"sku"`
+	FileID    sql.NullInt32  `json:"file_id"`
+	UserID    sql.NullInt32  `json:"user_id"`
+}
+
+func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
+	row := q.db.QueryRowContext(ctx, updateProduct,
+		arg.ProductID,
+		arg.Name,
+		arg.Category,
+		arg.Qty,
+		arg.Price,
+		arg.Sku,
+		arg.FileID,
+		arg.UserID,
+	)
+	var i Product
+	err := row.Scan(
+		&i.ProductID,
+		&i.UserID,
+		&i.Name,
+		&i.Category,
+		&i.Qty,
+		&i.Price,
+		&i.Sku,
+		&i.FileID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

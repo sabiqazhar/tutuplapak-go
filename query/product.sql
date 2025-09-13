@@ -35,3 +35,20 @@ ORDER BY
     p.created_at DESC
     LIMIT sqlc.arg('limit')
 OFFSET sqlc.arg('offset');
+
+-- name: UpdateProduct :one
+UPDATE products
+SET
+    name = $2,
+    category = $3,
+    qty = $4,
+    price = $5,
+    sku = $6,
+    file_id = $7,
+    updated_at = NOW()
+WHERE product_id = $1 AND user_id = $8
+RETURNING product_id, user_id, name, category, qty, price, sku, file_id, created_at, updated_at;
+
+-- name: DeleteProduct :exec
+DELETE FROM products
+WHERE product_id = $1 AND user_id = $2;
