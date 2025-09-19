@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"tutuplapak-go/middleware"
 	"tutuplapak-go/provider"
@@ -13,7 +14,10 @@ import (
 )
 
 func main() {
-	dataSourceName := "host=localhost user=user password=password dbname=tutuplapak port=5433 sslmode=disable TimeZone=Asia/Jakarta"
+	dataSourceName := os.Getenv("DATABASE_URL")
+	if dataSourceName == "" {
+		log.Fatal("❌ DATABASE_URL is not set in environment")
+	}
 
 	// Init DB
 	db := provider.InitDB(dataSourceName)
@@ -36,6 +40,11 @@ func main() {
 
 	// Serve static files (for uploaded files)
 	r.Static("/uploads", "./uploads")
+
+	// ➕ Tambahkan Health Check Endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.String(200, "OK")
+	})
 
 	// V1 API Routes according to requirement
 	v1 := r.Group("/v1")
@@ -65,7 +74,10 @@ func main() {
 	}
 
 	// Run server
-	port := ":8080"
-	log.Printf("🚀 Server running on http://localhost%s", port)
-	log.Fatal(r.Run(port))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("🚀 Server running on http://localhost:%s", port)
+	log.Fatal(r.Run(":" + port))
 }

@@ -18,8 +18,8 @@ CREATE TABLE product_category (
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     file_id INTEGER REFERENCES files(id) ON DELETE SET NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    phone VARCHAR(20) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(20) UNIQUE,
     bank_account_name VARCHAR(255),
     bank_account_holder VARCHAR(255),
     bank_account_number VARCHAR(50),
