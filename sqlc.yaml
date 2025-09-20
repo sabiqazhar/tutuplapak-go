@@ -1,6 +1,11 @@
 version: "2"
 sql:
-  - schema: "./migrations/000001_create_init_tabel.up.sql"
+  - schema: 
+      - "./migrations/000001_create_init_tabel.up.sql"
+      - "./migrations/000002_update_user_table.up.sql"
+      - "./migrations/000003_create-product-index.up.sql"
+      - "./migrations/000004_allow_null_phone.up.sql"
+      - "./migrations/000005_add_is_paid_to_purchases.up.sql"
     queries: "./query"
     engine: "postgresql"
     gen:

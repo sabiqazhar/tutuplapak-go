@@ -56,6 +56,8 @@ func main() {
 		v1.POST("/register/phone", authHandler.RegisterPhone)
 		v1.POST("/file", fileHandler.UploadFile)
 		v1.GET("/product", productHandler.GetProducts)
+		v1.POST("/purchase", purchaseHandler.CreatePurchase)
+		v1.POST("/purchase/:purchaseId", purchaseHandler.ConfirmPayment)
 
 		// Protected routes (require authentication)
 		protected := v1.Group("/")
@@ -69,7 +71,6 @@ func main() {
 			protected.POST("/product", productHandler.CreateProduct)
 			protected.PUT("/product", productHandler.UpdateProduct)
 			protected.DELETE("/product", productHandler.DeleteProduct)
-			protected.POST("/purchase", purchaseHandler.CreatePurchase)
 		}
 	}
 
