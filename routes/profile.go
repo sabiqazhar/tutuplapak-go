@@ -93,12 +93,14 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid user id")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid request body")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -108,11 +110,13 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	if req.FileID != "" {
 		fileIDInt, err := strconv.Atoi(req.FileID)
 		if err != nil {
+			utils.Logger.Error().Err(err).Msg("Invalid file id")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 			return
 		}
 		_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
 		if err != nil {
+			utils.Logger.Error().Err(err).Msg("File not found")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 			return
 		}
@@ -128,12 +132,14 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		BankAccountNumber: sql.NullString{String: req.BankAccountNumber, Valid: true},
 	})
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Failed to update user profile")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
 		return
 	}
 
 	fileURI, fileThumbnailURI, err := utils.GetFileInfo(h.Queries, c, updatedUser.FileID)
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Failed to get file info")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
 		return
 	}

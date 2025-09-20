@@ -51,6 +51,7 @@ type ProductResponse struct {
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	var req CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid request body")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -58,6 +59,7 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	// Validate file ID
 	fileIDInt, err := strconv.Atoi(req.FileID)
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid file id")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 		return
 	}
@@ -65,12 +67,14 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	// Check if file exists
 	file, err := h.Queries.GetFileByID(c, int32(fileIDInt))
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("File not found")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 		return
 	}
 
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("User ID from context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -86,6 +90,7 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 		FileID:   sql.NullInt32{Int32: int32(fileIDInt), Valid: true},
 	})
 	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Failed to create product")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
 		return
 	}

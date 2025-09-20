@@ -80,7 +80,11 @@ func (h *AuthHandler) RegisterEmail(c *gin.Context) {
 	}
 
 	// Generate token
-	token := utils.GenerateToken()
+	token, err := utils.GenerateJWTToken(uint(user.ID))
+	if err != nil {
+		utils.Logger.Error().Err(err)
+		utils.Logger.Error().Msg("failed to create token")
+	}
 	c.JSON(http.StatusCreated, AuthResponse{
 		Email: user.Email,
 		Phone: "", // Empty string if first registering
@@ -128,7 +132,11 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 	}
 
 	// Generate token
-	token := utils.GenerateToken()
+	token, err := utils.GenerateJWTToken(uint(user.ID))
+	if err != nil {
+		utils.Logger.Error().Err(err)
+		utils.Logger.Error().Msg("failed to create token")
+	}
 	c.JSON(http.StatusCreated, AuthResponse{
 		Email: "", // Empty string if first registering
 		Phone: user.Phone,
@@ -158,7 +166,11 @@ func (h *AuthHandler) LoginEmail(c *gin.Context) {
 	}
 
 	// Generate token
-	token := utils.GenerateToken()
+	token, err := utils.GenerateJWTToken(uint(user.ID))
+	if err != nil {
+		utils.Logger.Error().Err(err)
+		utils.Logger.Error().Msg("failed to create token")
+	}
 	c.JSON(http.StatusOK, AuthResponse{
 		Email: user.Email,
 		Phone: user.Phone, // Could be empty if not linked
@@ -194,7 +206,11 @@ func (h *AuthHandler) LoginPhone(c *gin.Context) {
 	}
 
 	// Generate token
-	token := utils.GenerateToken()
+	token, err := utils.GenerateJWTToken(uint(user.ID))
+	if err != nil {
+		utils.Logger.Error().Err(err)
+		utils.Logger.Error().Msg("failed to create token")
+	}
 	// Store token with user ID
 	utils.GlobalTokenStore.StoreToken(token, user.ID)
 	c.JSON(http.StatusOK, AuthResponse{
