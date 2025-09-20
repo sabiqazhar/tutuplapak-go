@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"tutuplapak-go/config"
 	"tutuplapak-go/middleware"
 	"tutuplapak-go/provider"
 	"tutuplapak-go/repository"
@@ -14,13 +15,9 @@ import (
 )
 
 func main() {
-	dataSourceName := os.Getenv("DATABASE_URL")
-	if dataSourceName == "" {
-		log.Fatal("❌ DATABASE_URL is not set in environment")
-	}
-
+	cfg := config.LoadConfig()
 	// Init DB
-	db := provider.InitDB(dataSourceName)
+	db := provider.InitDB(cfg.Database)
 
 	// Init sqlc Queries
 	queries := repository.New(db)
@@ -82,3 +79,4 @@ func main() {
 	log.Printf("🚀 Server running on http://localhost:%s", port)
 	log.Fatal(r.Run(":" + port))
 }
+

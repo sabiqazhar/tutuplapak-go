@@ -5,9 +5,9 @@
 # Database configuration
 DB_HOST ?= localhost
 DB_PORT ?= 5433
-DB_USER ?= user
-DB_PASSWORD ?= password
-DB_NAME ?= tutuplapak
+DB_USER ?= postgres
+DB_PASSWORD ?= postgres
+DB_NAME ?= postgres
 DB_SSL_MODE ?= disable
 
 # Migration settings
@@ -20,11 +20,15 @@ YELLOW := \033[33m
 RED := \033[31m
 RESET := \033[0m
 
-.PHONY: help migrate-create migrate-up migrate-down migrate-drop migrate-force migrate-version migrate-status
+.PHONY: help run migrate-create migrate-up migrate-down migrate-drop migrate-force migrate-version migrate-status
 
 help: ## Show this help message
 	@echo "$(GREEN)Available commands:$(RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(RESET) %s\n", $$1, $$2}'
+
+run:
+	go run cmd/main.go
+
 
 migrate-create: ## Create a new migration file (usage: make migrate-create NAME=create_users_table)
 	@if [ -z "$(NAME)" ]; then \

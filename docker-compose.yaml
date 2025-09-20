@@ -1,50 +1,52 @@
-version: "3.8"
+x-db-env: &db-env
+  PGDATABASE: ${PGDATABASE:-postgres}
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  PGDATA: ${PGDATA:-/var/lib/postgresql/data}
 
 services:
-  go:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: tutuplapak-go
-    restart: unless-stopped
-    ports:
-      - "${PORT}:8080"
-    environment:
-      - APP_ENV=${APP_ENV}
-      - PORT=8080
-      - DATABASE_URL=${DATABASE_URL}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_USE_SSL=${MINIO_USE_SSL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+  # go:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: tutuplapak-go
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${PORT}:8080"
+  #   environment:
+  #     - APP_ENV=${APP_ENV}
+  #     - PORT=8080
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+  #     - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+  #     - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+  #     - MINIO_USE_SSL=${MINIO_USE_SSL}
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 40s
 
   postgres:
-    image: postgres:15-alpine
-    container_name: tutuplapak-postgres
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    image: postgres:17-alpine
     ports:
       - "5433:5432"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    environment:
+      <<: *db-env
     volumes:
-      - tutuplapak_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - pgdata:/var/lib/postgresql/data
 
   minio:
     image: minio/minio:latest
@@ -64,4 +66,5 @@ services:
       retries: 3
 
 volumes:
-  tutuplapak_data:
+  pgdata:
+
