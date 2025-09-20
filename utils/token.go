@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Simple in-memory token store (use Redis or DB in production)
@@ -81,4 +83,17 @@ func (ts *TokenStore) StartCleanupRoutine() {
 			ts.CleanupExpiredTokens()
 		}
 	}()
+}
+
+func GenerateJWTToken(userID uint) (string, error) {
+	tokenString := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"exp":     time.Now().Add(time.Hour * 2).Unix(),
+	})
+
+	token, err := tokenString.SignedString([]byte("secret"))
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }

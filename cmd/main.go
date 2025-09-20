@@ -15,10 +15,11 @@ import (
 )
 
 func main() {
+	utils.InitLogger()
+
 	cfg := config.LoadConfig()
 	// Init DB
 	db := provider.InitDB(cfg.Database)
-
 	// Init sqlc Queries
 	queries := repository.New(db)
 
@@ -79,4 +80,3 @@ func main() {
 	log.Printf("🚀 Server running on http://localhost:%s", port)
 	log.Fatal(r.Run(":" + port))
 }
-
