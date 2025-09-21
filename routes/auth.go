@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"database/sql"
 	"net/http"
 
 	"tutuplapak-go/repository"
@@ -55,7 +56,7 @@ func (h *AuthHandler) RegisterEmail(c *gin.Context) {
 	}
 
 	// Check if user already exists
-	_, err := h.Queries.GetUserByEmail(c, req.Email)
+	_, err := h.Queries.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true})
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
 		return
@@ -70,9 +71,9 @@ func (h *AuthHandler) RegisterEmail(c *gin.Context) {
 
 	// Create user
 	user, err := h.Queries.CreateUserWithEmail(c, repository.CreateUserWithEmailParams{
-		Email:    req.Email,
+		Email:    sql.NullString{String: req.Email, Valid: true},
 		Password: string(hashedPassword),
-		Phone:    "", // Empty phone initially
+		Phone:    sql.NullString{String: "", Valid: false}, // Empty phone initially
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
@@ -86,7 +87,7 @@ func (h *AuthHandler) RegisterEmail(c *gin.Context) {
 		utils.Logger.Error().Msg("failed to create token")
 	}
 	c.JSON(http.StatusCreated, AuthResponse{
-		Email: user.Email,
+		Email: user.Email.String,
 		Phone: "", // Empty string if first registering
 		Token: token,
 	})
@@ -107,7 +108,7 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 	}
 
 	// Check if phone already exists
-	_, err := h.Queries.GetUserByPhone(c, req.Phone)
+	_, err := h.Queries.GetUserByPhone(c, sql.NullString{String: req.Phone, Valid: true})
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Phone already exists"})
 		return
@@ -122,9 +123,9 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 
 	// Create user with phone
 	user, err := h.Queries.CreateUserWithPhone(c, repository.CreateUserWithPhoneParams{
-		Phone:    req.Phone,
+		Phone:    sql.NullString{String: req.Phone, Valid: true},
 		Password: string(hashedPassword),
-		Email:    "", // Empty email initially
+		Email:    sql.NullString{String: "", Valid: false}, // Empty email initially
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
@@ -139,7 +140,7 @@ func (h *AuthHandler) RegisterPhone(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, AuthResponse{
 		Email: "", // Empty string if first registering
-		Phone: user.Phone,
+		Phone: user.Phone.String,
 		Token: token,
 	})
 }
@@ -153,7 +154,7 @@ func (h *AuthHandler) LoginEmail(c *gin.Context) {
 	}
 
 	// Find user by email
-	user, err := h.Queries.GetUserByEmail(c, req.Email)
+	user, err := h.Queries.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
 		return
@@ -172,8 +173,8 @@ func (h *AuthHandler) LoginEmail(c *gin.Context) {
 		utils.Logger.Error().Msg("failed to create token")
 	}
 	c.JSON(http.StatusOK, AuthResponse{
-		Email: user.Email,
-		Phone: user.Phone, // Could be empty if not linked
+		Email: user.Email.String,
+		Phone: utils.NullStringToString(user.Phone), // Could be empty if not linked
 		Token: token,
 	})
 }
@@ -193,7 +194,7 @@ func (h *AuthHandler) LoginPhone(c *gin.Context) {
 	}
 
 	// Find user by phone
-	user, err := h.Queries.GetUserByPhone(c, req.Phone)
+	user, err := h.Queries.GetUserByPhone(c, sql.NullString{String: req.Phone, Valid: true})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Phone not found"})
 		return
@@ -214,8 +215,8 @@ func (h *AuthHandler) LoginPhone(c *gin.Context) {
 	// Store token with user ID
 	utils.GlobalTokenStore.StoreToken(token, user.ID)
 	c.JSON(http.StatusOK, AuthResponse{
-		Email: user.Email, // Could be empty if not linked
-		Phone: user.Phone,
+		Email: utils.NullStringToString(user.Email), // Could be empty if not linked
+		Phone: user.Phone.String,
 		Token: token,
 	})
 }

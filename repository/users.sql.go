@@ -17,14 +17,14 @@ VALUES ($1, $2)
 `
 
 type CreateUserParams struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email    sql.NullString `json:"email"`
+	Password string         `json:"password"`
 }
 
 type CreateUserRow struct {
-	ID        int32        `json:"id"`
-	Email     string       `json:"email"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ID        int32          `json:"id"`
+	Email     sql.NullString `json:"email"`
+	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
 // Authentication queries
@@ -42,16 +42,16 @@ VALUES ($1, $2, $3)
 `
 
 type CreateUserWithEmailParams struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Phone    string `json:"phone"`
+	Email    sql.NullString `json:"email"`
+	Password string         `json:"password"`
+	Phone    sql.NullString `json:"phone"`
 }
 
 type CreateUserWithEmailRow struct {
-	ID        int32        `json:"id"`
-	Email     string       `json:"email"`
-	Phone     string       `json:"phone"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ID        int32          `json:"id"`
+	Email     sql.NullString `json:"email"`
+	Phone     sql.NullString `json:"phone"`
+	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
 func (q *Queries) CreateUserWithEmail(ctx context.Context, arg CreateUserWithEmailParams) (CreateUserWithEmailRow, error) {
@@ -73,16 +73,16 @@ VALUES ($1, $2, $3)
 `
 
 type CreateUserWithPhoneParams struct {
-	Phone    string `json:"phone"`
-	Password string `json:"password"`
-	Email    string `json:"email"`
+	Phone    sql.NullString `json:"phone"`
+	Password string         `json:"password"`
+	Email    sql.NullString `json:"email"`
 }
 
 type CreateUserWithPhoneRow struct {
-	ID        int32        `json:"id"`
-	Phone     string       `json:"phone"`
-	Email     string       `json:"email"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ID        int32          `json:"id"`
+	Phone     sql.NullString `json:"phone"`
+	Email     sql.NullString `json:"email"`
+	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
 func (q *Queries) CreateUserWithPhone(ctx context.Context, arg CreateUserWithPhoneParams) (CreateUserWithPhoneRow, error) {
@@ -104,14 +104,14 @@ WHERE email = $1
 `
 
 type GetUserByEmailRow struct {
-	ID        int32        `json:"id"`
-	Email     string       `json:"email"`
-	Phone     string       `json:"phone"`
-	Password  string       `json:"password"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ID        int32          `json:"id"`
+	Email     sql.NullString `json:"email"`
+	Phone     sql.NullString `json:"phone"`
+	Password  string         `json:"password"`
+	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
+func (q *Queries) GetUserByEmail(ctx context.Context, email sql.NullString) (GetUserByEmailRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
 	var i GetUserByEmailRow
 	err := row.Scan(
@@ -156,14 +156,14 @@ WHERE phone = $1
 `
 
 type GetUserByPhoneRow struct {
-	ID        int32        `json:"id"`
-	Phone     string       `json:"phone"`
-	Email     string       `json:"email"`
-	Password  string       `json:"password"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ID        int32          `json:"id"`
+	Phone     sql.NullString `json:"phone"`
+	Email     sql.NullString `json:"email"`
+	Password  string         `json:"password"`
+	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
-func (q *Queries) GetUserByPhone(ctx context.Context, phone string) (GetUserByPhoneRow, error) {
+func (q *Queries) GetUserByPhone(ctx context.Context, phone sql.NullString) (GetUserByPhoneRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByPhone, phone)
 	var i GetUserByPhoneRow
 	err := row.Scan(
@@ -186,15 +186,15 @@ WHERE id = $1
 `
 
 type LinkEmailToUserParams struct {
-	ID    int32  `json:"id"`
-	Email string `json:"email"`
+	ID    int32          `json:"id"`
+	Email sql.NullString `json:"email"`
 }
 
 type LinkEmailToUserRow struct {
 	ID                int32          `json:"id"`
 	FileID            sql.NullInt32  `json:"file_id"`
-	Email             string         `json:"email"`
-	Phone             string         `json:"phone"`
+	Email             sql.NullString `json:"email"`
+	Phone             sql.NullString `json:"phone"`
 	BankAccountName   sql.NullString `json:"bank_account_name"`
 	BankAccountHolder sql.NullString `json:"bank_account_holder"`
 	BankAccountNumber sql.NullString `json:"bank_account_number"`
@@ -229,15 +229,15 @@ WHERE id = $1
 `
 
 type LinkPhoneToUserParams struct {
-	ID    int32  `json:"id"`
-	Phone string `json:"phone"`
+	ID    int32          `json:"id"`
+	Phone sql.NullString `json:"phone"`
 }
 
 type LinkPhoneToUserRow struct {
 	ID                int32          `json:"id"`
 	FileID            sql.NullInt32  `json:"file_id"`
-	Email             string         `json:"email"`
-	Phone             string         `json:"phone"`
+	Email             sql.NullString `json:"email"`
+	Phone             sql.NullString `json:"phone"`
 	BankAccountName   sql.NullString `json:"bank_account_name"`
 	BankAccountHolder sql.NullString `json:"bank_account_holder"`
 	BankAccountNumber sql.NullString `json:"bank_account_number"`
@@ -285,8 +285,8 @@ type UpdateUserProfileParams struct {
 type UpdateUserProfileRow struct {
 	ID                int32          `json:"id"`
 	FileID            sql.NullInt32  `json:"file_id"`
-	Email             string         `json:"email"`
-	Phone             string         `json:"phone"`
+	Email             sql.NullString `json:"email"`
+	Phone             sql.NullString `json:"phone"`
 	BankAccountName   sql.NullString `json:"bank_account_name"`
 	BankAccountHolder sql.NullString `json:"bank_account_holder"`
 	BankAccountNumber sql.NullString `json:"bank_account_number"`

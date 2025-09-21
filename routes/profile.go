@@ -77,8 +77,8 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 	}
 
 	response := ProfileResponse{
-		Email:             user.Email,
-		Phone:             user.Phone,
+		Email:             utils.NullStringToString(user.Email),
+		Phone:             utils.NullStringToString(user.Phone),
 		FileID:            utils.NullInt32ToString(user.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
@@ -107,6 +107,7 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 
 	// Validate fileId if provided
 	var fileID sql.NullInt32
+	// FileID is optional, but if provided it must be a valid file ID (not empty string)
 	if req.FileID != "" {
 		fileIDInt, err := strconv.Atoi(req.FileID)
 		if err != nil {
@@ -121,6 +122,9 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 			return
 		}
 		fileID = sql.NullInt32{Int32: int32(fileIDInt), Valid: true}
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
+		return
 	}
 
 	// Update user profile
@@ -145,8 +149,8 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	response := ProfileResponse{
-		Email:             updatedUser.Email,
-		Phone:             updatedUser.Phone,
+		Email:             utils.NullStringToString(updatedUser.Email),
+		Phone:             utils.NullStringToString(updatedUser.Phone),
 		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
@@ -178,7 +182,7 @@ func (h *ProfileHandler) LinkPhone(c *gin.Context) {
 	}
 
 	// Check if phone is already taken
-	_, err = h.Queries.GetUserByPhone(c, req.Phone)
+	_, err = h.Queries.GetUserByPhone(c, sql.NullString{String: req.Phone, Valid: true})
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Phone is taken"})
 		return
@@ -187,7 +191,7 @@ func (h *ProfileHandler) LinkPhone(c *gin.Context) {
 	// Link phone to user
 	updatedUser, err := h.Queries.LinkPhoneToUser(c, repository.LinkPhoneToUserParams{
 		ID:    userID,
-		Phone: req.Phone,
+		Phone: sql.NullString{String: req.Phone, Valid: true},
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
@@ -201,8 +205,8 @@ func (h *ProfileHandler) LinkPhone(c *gin.Context) {
 	}
 
 	response := ProfileResponse{
-		Email:             updatedUser.Email,
-		Phone:             updatedUser.Phone,
+		Email:             utils.NullStringToString(updatedUser.Email),
+		Phone:             utils.NullStringToString(updatedUser.Phone),
 		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
@@ -228,7 +232,7 @@ func (h *ProfileHandler) LinkEmail(c *gin.Context) {
 	}
 
 	// Check if email is already taken
-	_, err = h.Queries.GetUserByEmail(c, req.Email)
+	_, err = h.Queries.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true})
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email is taken"})
 		return
@@ -237,7 +241,7 @@ func (h *ProfileHandler) LinkEmail(c *gin.Context) {
 	// Link email to user
 	updatedUser, err := h.Queries.LinkEmailToUser(c, repository.LinkEmailToUserParams{
 		ID:    userID,
-		Email: req.Email,
+		Email: sql.NullString{String: req.Email, Valid: true},
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
@@ -251,8 +255,8 @@ func (h *ProfileHandler) LinkEmail(c *gin.Context) {
 	}
 
 	response := ProfileResponse{
-		Email:             updatedUser.Email,
-		Phone:             updatedUser.Phone,
+		Email:             utils.NullStringToString(updatedUser.Email),
+		Phone:             utils.NullStringToString(updatedUser.Phone),
 		FileID:            utils.NullInt32ToString(updatedUser.FileID),
 		FileURI:           fileURI,
 		FileThumbnailURI:  fileThumbnailURI,
