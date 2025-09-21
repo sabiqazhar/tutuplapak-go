@@ -40,7 +40,7 @@ type PurchasedItemResponse struct {
 	Name             string `json:"name"`
 	Category         string `json:"category"`
 	Qty              int32  `json:"qty"`
-	Price            string `json:"price"`
+	Price            int    `json:"price"`
 	SKU              string `json:"sku"`
 	FileID           string `json:"fileId"`
 	FileURI          string `json:"fileUri"`
@@ -71,7 +71,7 @@ type PaymentConfirmationRequest struct {
 func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 	var req CreatePurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
 
@@ -96,6 +96,12 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 	var total int32
 
 	for _, item := range req.PurchasedItems {
+		// Strictly reject invalid qty (<= 0)
+		if item.Qty <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+			return
+		}
+
 		productID, err := strconv.Atoi(item.ProductID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID format"})
@@ -170,12 +176,13 @@ func (h *PurchaseHandler) CreatePurchase(c *gin.Context) {
 
 		// Build response snapshot
 		fileURI, thumbnailURI, _ := utils.GetFileInfo(h.Queries, ctx, snapshot.FileID)
+		priceInt, _ := strconv.Atoi(utils.NullStringToString(snapshot.Price))
 		purchasedItemsResponse = append(purchasedItemsResponse, PurchasedItemResponse{
 			ProductID:        fmt.Sprintf("%d", snapshot.ProductID),
 			Name:             utils.NullStringToString(snapshot.Name),
 			Category:         categoryName,
 			Qty:              req.PurchasedItems[i].Qty, // The quantity bought
-			Price:            utils.NullStringToString(snapshot.Price),
+			Price:            priceInt,
 			SKU:              utils.NullStringToString(snapshot.Sku),
 			FileID:           utils.NullInt32ToString(snapshot.FileID),
 			FileURI:          fileURI,
@@ -212,7 +219,7 @@ func (h *PurchaseHandler) ConfirmPayment(c *gin.Context) {
 	purchaseIDStr := c.Param("purchaseId")
 	purchaseID, err := strconv.Atoi(purchaseIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid purchase ID format"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid purchase ID format"})
 		return
 	}
 
@@ -289,7 +296,7 @@ func (h *PurchaseHandler) ConfirmPayment(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate file"})
 			return
 		}
-		_ = file 
+		_ = file
 	}
 
 	// Create payment details for each seller

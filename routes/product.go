@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
-	"tutuplapak-go/utils"
 
 	"tutuplapak-go/repository"
+	"tutuplapak-go/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,10 +26,10 @@ func NewProductHandler(queries *repository.Queries) *ProductHandler {
 // Request DTO
 type CreateProductRequest struct {
 	Name     string `json:"name" binding:"required,min=4,max=32"`
-	Category int32  `json:"category" binding:"required"`
+	Category string `json:"category" binding:"required,oneof=Food Beverage Clothes Furniture Tools"`
 	Qty      int32  `json:"qty" binding:"required,min=1"`
 	Price    int32  `json:"price" binding:"required,min=100"`
-	Sku      string `json:"sku" binding:"required,min=0,max=32"`
+	Sku      string `json:"sku" binding:"required,max=32"`
 	FileID   string `json:"fileId" binding:"required"`
 }
 
@@ -36,9 +37,9 @@ type CreateProductRequest struct {
 type ProductResponse struct {
 	ProductID        string    `json:"productId"`
 	Name             string    `json:"name"`
-	Category         int32     `json:"category"`
+	Category         string    `json:"category"`
 	Qty              int32     `json:"qty"`
-	Price            float64   `json:"price"`
+	Price            int32     `json:"price"`
 	Sku              string    `json:"sku"`
 	FileID           string    `json:"fileId"`
 	FileURI          string    `json:"fileUri"`
@@ -52,6 +53,12 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	var req CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.Logger.Error().Err(err).Msg("Invalid request body")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Additional guard: SKU must not be empty or whitespace-only
+	if strings.TrimSpace(req.Sku) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
 		return
 	}
@@ -72,6 +79,14 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 		return
 	}
 
+	// Get category ID from category name
+	categoryID, err := h.Queries.GetProductCategoryByName(c, sql.NullString{String: req.Category, Valid: true})
+	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid category")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category"})
+		return
+	}
+
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
 		utils.Logger.Error().Err(err).Msg("User ID from context")
@@ -79,11 +94,24 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 		return
 	}
 
+	// Check if SKU already exists for this user
+	if req.Sku != "" {
+		_, err = h.Queries.GetProductBySKUAndUserID(c, repository.GetProductBySKUAndUserIDParams{
+			Sku:    sql.NullString{String: req.Sku, Valid: true},
+			UserID: sql.NullInt32{Int32: userID, Valid: true},
+		})
+		if err == nil {
+			utils.Logger.Error().Msg("SKU already exists for this user")
+			c.JSON(http.StatusConflict, gin.H{"error": "sku already exists (per account basis)"})
+			return
+		}
+	}
+
 	// Create product
 	product, err := h.Queries.CreateProduct(c, repository.CreateProductParams{
 		UserID:   sql.NullInt32{Int32: userID, Valid: true},
 		Name:     sql.NullString{String: req.Name, Valid: true},
-		Category: sql.NullInt32{Int32: req.Category, Valid: true},
+		Category: sql.NullInt32{Int32: categoryID, Valid: true},
 		Qty:      sql.NullInt32{Int32: req.Qty, Valid: true},
 		Price:    sql.NullString{String: fmt.Sprintf("%d", req.Price), Valid: true},
 		Sku:      sql.NullString{String: req.Sku, Valid: true},
@@ -91,6 +119,11 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	})
 	if err != nil {
 		utils.Logger.Error().Err(err).Msg("Failed to create product")
+		// Check if it's a unique constraint violation for SKU
+		if err.Error() != "" && (strings.Contains(err.Error(), "unique_sku_per_user") || strings.Contains(err.Error(), "duplicate key")) {
+			c.JSON(http.StatusConflict, gin.H{"error": "sku already exists (per account basis)"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
 		return
 	}
@@ -99,9 +132,9 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	response := ProductResponse{
 		ProductID:        strconv.FormatInt(int64(product.ProductID), 10),
 		Name:             product.Name.String,
-		Category:         product.Category.Int32,
+		Category:         req.Category,
 		Qty:              product.Qty.Int32,
-		Price:            float64(req.Price),
+		Price:            req.Price,
 		Sku:              product.Sku.String,
 		FileID:           strconv.FormatInt(int64(product.FileID.Int32), 10),
 		FileURI:          file.FileUri,
@@ -119,8 +152,8 @@ type GetProductResponse struct {
 	Name             string    `json:"name"`
 	Category         string    `json:"category"`
 	Qty              int32     `json:"qty"`
-	Price            string    `json:"price"`
-	SKU              string    `json:"sku"`
+	Price            int32     `json:"price"`
+	Sku              string    `json:"sku"`
 	FileID           string    `json:"fileId"`
 	FileURI          string    `json:"fileUri"`
 	FileThumbnailURI string    `json:"fileThumbnailUri"`
@@ -216,13 +249,14 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 			return
 		}
 
+		priceInt, _ := strconv.Atoi(utils.NullStringToString(p.Price))
 		response = append(response, GetProductResponse{
 			ProductID:        fmt.Sprintf("%d", p.ProductID),
 			Name:             utils.NullStringToString(p.Name),
 			Category:         utils.NullStringToString(p.CategoryName),
 			Qty:              p.Qty.Int32,
-			Price:            utils.NullStringToString(p.Price),
-			SKU:              utils.NullStringToString(p.Sku),
+			Price:            int32(priceInt),
+			Sku:              utils.NullStringToString(p.Sku),
 			FileID:           utils.NullInt32ToString(p.FileID),
 			FileURI:          fileURI,
 			FileThumbnailURI: fileThumbnailURI,
@@ -240,49 +274,105 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 }
 
 func (h *ProductHandler) UpdateProduct(c *gin.Context) {
-	userId, err := getUserIDFromContext(c)
+	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 	productID, err := strconv.Atoi(c.Param("productId"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "productId is not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
+		return
+	}
+
+	// Check if product exists and belongs to user
+	existingProduct, err := h.Queries.GetProductByID(c, int32(productID))
+	if err != nil || existingProduct.UserID.Int32 != userID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "productId is not found"})
 		return
 	}
 
 	var req CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
 	}
 
+	// Additional guard: SKU must not be empty or whitespace-only
+	if strings.TrimSpace(req.Sku) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Validation error"})
+		return
+	}
+
+	// Validate file ID
 	fileIDInt, err := strconv.Atoi(req.FileID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid"})
 		return
 	}
-	_, err = h.Queries.GetFileByID(c, int32(fileIDInt))
+	file, err := h.Queries.GetFileByID(c, int32(fileIDInt))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is not valid / exists"})
 		return
 	}
 
+	// Get category ID from category name
+	categoryID, err := h.Queries.GetProductCategoryByName(c, sql.NullString{String: req.Category, Valid: true})
+	if err != nil {
+		utils.Logger.Error().Err(err).Msg("Invalid category")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category"})
+		return
+	}
+
+	// Check if SKU already exists for this user (excluding current product)
+	if req.Sku != "" && req.Sku != existingProduct.Sku.String {
+		existingSku, err := h.Queries.GetProductBySKUAndUserID(c, repository.GetProductBySKUAndUserIDParams{
+			Sku:    sql.NullString{String: req.Sku, Valid: true},
+			UserID: sql.NullInt32{Int32: userID, Valid: true},
+		})
+		if err == nil && existingSku.ProductID != int32(productID) {
+			utils.Logger.Error().Msg("SKU already exists for this user")
+			c.JSON(http.StatusConflict, gin.H{"error": "sku already exists (per account basis)"})
+			return
+		}
+	}
+
 	updatedProduct, err := h.Queries.UpdateProduct(c, repository.UpdateProductParams{
 		ProductID: int32(productID),
 		Name:      sql.NullString{String: req.Name, Valid: true},
-		Category:  sql.NullInt32{Int32: req.Category, Valid: true},
+		Category:  sql.NullInt32{Int32: categoryID, Valid: true},
 		Qty:       sql.NullInt32{Int32: req.Qty, Valid: true},
 		Price:     sql.NullString{String: fmt.Sprintf("%d", req.Price), Valid: true},
 		Sku:       sql.NullString{String: req.Sku, Valid: true},
 		FileID:    sql.NullInt32{Int32: int32(fileIDInt), Valid: true},
-		UserID:    sql.NullInt32{Int32: userId, Valid: true},
+		UserID:    sql.NullInt32{Int32: userID, Valid: true},
 	})
 	if err != nil {
+		// Check if it's a unique constraint violation for SKU
+		if err.Error() != "" && (strings.Contains(err.Error(), "unique_sku_per_user") || strings.Contains(err.Error(), "duplicate key")) {
+			c.JSON(http.StatusConflict, gin.H{"error": "sku already exists (per account basis)"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error while updating"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Product updated successfully", "product_id": updatedProduct.ProductID})
+	// Build response
+	response := ProductResponse{
+		ProductID:        strconv.FormatInt(int64(updatedProduct.ProductID), 10),
+		Name:             updatedProduct.Name.String,
+		Category:         req.Category,
+		Qty:              updatedProduct.Qty.Int32,
+		Price:            req.Price,
+		Sku:              updatedProduct.Sku.String,
+		FileID:           strconv.FormatInt(int64(updatedProduct.FileID.Int32), 10),
+		FileURI:          file.FileUri,
+		FileThumbnailURI: file.FileThumnailUri.String,
+		CreatedAt:        updatedProduct.CreatedAt.Time,
+		UpdatedAt:        updatedProduct.UpdatedAt.Time,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *ProductHandler) DeleteProduct(c *gin.Context) {
@@ -313,5 +403,5 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
+	c.Status(http.StatusOK)
 }

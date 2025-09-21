@@ -63,8 +63,8 @@ type PurchaseItem struct {
 type User struct {
 	ID                int32          `json:"id"`
 	FileID            sql.NullInt32  `json:"file_id"`
-	Email             string         `json:"email"`
-	Phone             string         `json:"phone"`
+	Email             sql.NullString `json:"email"`
+	Phone             sql.NullString `json:"phone"`
 	BankAccountName   sql.NullString `json:"bank_account_name"`
 	BankAccountHolder sql.NullString `json:"bank_account_holder"`
 	BankAccountNumber sql.NullString `json:"bank_account_number"`

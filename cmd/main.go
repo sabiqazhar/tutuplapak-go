@@ -67,8 +67,8 @@ func main() {
 			protected.POST("/user/link/phone", profileHandler.LinkPhone)
 			protected.POST("/user/link/email", profileHandler.LinkEmail)
 			protected.POST("/product", productHandler.CreateProduct)
-			protected.PUT("/product", productHandler.UpdateProduct)
-			protected.DELETE("/product", productHandler.DeleteProduct)
+			protected.PUT("/product/:productId", productHandler.UpdateProduct)
+			protected.DELETE("/product/:productId", productHandler.DeleteProduct)
 		}
 	}
 
